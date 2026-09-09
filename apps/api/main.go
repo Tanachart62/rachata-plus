@@ -2,19 +2,26 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
-	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	if err := godotenv.Load("../../.env"); err != nil {
-		log.Fatal("Cannot load .env file")
+		return fmt.Errorf("load .env: %w", err)
 	}
 
 	for _, key := range []string{
@@ -24,7 +31,7 @@ func main() {
 		"POSTGRES_PORT",
 	} {
 		if os.Getenv(key) == "" {
-			log.Fatalf("Missing %s in .env", key)
+			return fmt.Errorf("missing environment variable: %s", key)
 		}
 	}
 
@@ -48,16 +55,13 @@ func main() {
 	router := gin.Default()
 
 	if err := router.SetTrustedProxies(nil); err != nil {
-		log.Print(err)
-		return
+		return err
 	}
 
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readyHandler(db))
 
-	if err := router.Run("127.0.0.1:8080"); err != nil {
-		log.Print(err)
-	}
+	return router.Run("127.0.0.1:8080")
 }
 
 func healthHandler(c *gin.Context) {

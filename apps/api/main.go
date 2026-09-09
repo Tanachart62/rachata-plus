@@ -48,7 +48,7 @@ func run() error {
 
 	db, err := pgxpool.New(context.Background(), dbURL.String())
 	if err != nil {
-		log.Fatal("Invalid database configuration")
+		return fmt.Errorf("invalid database configuration")
 	}
 	defer db.Close()
 

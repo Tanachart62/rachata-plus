@@ -3,14 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -20,7 +22,8 @@ func main() {
 }
 
 func run() error {
-	if err := godotenv.Load("../../.env"); err != nil {
+	// บนเซิร์ฟเวอร์สามารถใช้ environment โดยไม่ต้องมีไฟล์ .env
+	if err := godotenv.Load("../../.env"); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("load .env: %w", err)
 	}
 
@@ -29,9 +32,25 @@ func run() error {
 		"POSTGRES_PASSWORD",
 		"POSTGRES_DB",
 		"POSTGRES_PORT",
+		"DB_HOST",
+		"DB_SSLMODE",
+		"HTTP_ADDR",
 	} {
 		if os.Getenv(key) == "" {
 			return fmt.Errorf("missing environment variable: %s", key)
+		}
+	}
+
+	sslMode := os.Getenv("DB_SSLMODE")
+	rootCert := os.Getenv("DB_SSLROOTCERT")
+
+	if sslMode == "verify-full" || sslMode == "verify-ca" {
+		if rootCert == "" {
+			return fmt.Errorf("DB_SSLROOTCERT is required for %s", sslMode)
+		}
+
+		if _, err := os.Stat(rootCert); err != nil {
+			return fmt.Errorf("read database CA certificate: %w", err)
 		}
 	}
 
@@ -41,14 +60,26 @@ func run() error {
 			os.Getenv("POSTGRES_USER"),
 			os.Getenv("POSTGRES_PASSWORD"),
 		),
-		Host:     "127.0.0.1:" + os.Getenv("POSTGRES_PORT"),
-		Path:     "/" + os.Getenv("POSTGRES_DB"),
-		RawQuery: "sslmode=disable",
+		Host: net.JoinHostPort(
+			os.Getenv("DB_HOST"),
+			os.Getenv("POSTGRES_PORT"),
+		),
+		Path: "/" + os.Getenv("POSTGRES_DB"),
 	}
+
+	query := dbURL.Query()
+	query.Set("sslmode", sslMode)
+
+	if rootCert != "" {
+		query.Set("sslrootcert", rootCert)
+	}
+
+	dbURL.RawQuery = query.Encode()
 
 	db, err := pgxpool.New(context.Background(), dbURL.String())
 	if err != nil {
-		return fmt.Errorf("invalid database configuration")
+		// ไม่แสดง connection URL ซึ่งมีรหัสผ่าน
+		return fmt.Errorf("cannot initialize database pool: check configuration and CA file")
 	}
 	defer db.Close()
 
@@ -61,7 +92,7 @@ func run() error {
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readyHandler(db))
 
-	return router.Run("127.0.0.1:8080")
+	return router.Run(os.Getenv("HTTP_ADDR"))
 }
 
 func healthHandler(c *gin.Context) {
@@ -77,7 +108,7 @@ func readyHandler(db *pgxpool.Pool) gin.HandlerFunc {
 		defer cancel()
 
 		if err := db.Ping(ctx); err != nil {
-			log.Printf("Database connection failed: %v", err)
+			log.Printf("Database readiness check failed: %v", err)
 
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"status":   "not_ready",

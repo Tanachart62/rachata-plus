@@ -9,20 +9,16 @@ import (
 	"net/url"
 	"os"
 	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
-
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
 }
-
 func run() error {
-	// บนเซิร์ฟเวอร์สามารถใช้ environment โดยไม่ต้องมีไฟล์ .env
 	if err := godotenv.Load("../../.env"); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("load .env: %w", err)
 	}
@@ -78,7 +74,6 @@ func run() error {
 
 	db, err := pgxpool.New(context.Background(), dbURL.String())
 	if err != nil {
-		// ไม่แสดง connection URL ซึ่งมีรหัสผ่าน
 		return fmt.Errorf("cannot initialize database pool: check configuration and CA file")
 	}
 	defer db.Close()
@@ -91,7 +86,7 @@ func run() error {
 
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readyHandler(db))
-
+	router.POST("/auth/register", registerHandler)
 	return router.Run(os.Getenv("HTTP_ADDR"))
 }
 

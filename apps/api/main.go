@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
-	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 )
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -86,7 +87,7 @@ func run() error {
 
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readyHandler(db))
-	router.POST("/auth/register", registerHandler)
+	router.POST("/auth/register", registerHandler(db))
 	return router.Run(os.Getenv("HTTP_ADDR"))
 }
 

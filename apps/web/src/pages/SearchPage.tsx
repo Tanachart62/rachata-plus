@@ -15,7 +15,7 @@ export function SearchPage({ query, videos, loading }: { query: string; videos: 
   return (
     <main className="rp-page search-page">
       <div className="rp-page-heading">
-        <div className="rp-eyebrow">Discover your next story</div>
+        <div className="rp-eyebrow" lang="en">Discover your next story</div>
         <h1>ผลการค้นหา</h1>
         <p className="search-result-label" role="status">
           {terms.length ? loading ? 'กำลังค้นหาวิดีโอ…' : <>พบ {results.length} รายการสำหรับ <strong>“{query.trim()}”</strong></> : 'ค้นหาเรื่องที่อยากดูจากช่องค้นหาด้านบน'}

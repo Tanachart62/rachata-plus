@@ -1,0 +1,116 @@
+# Local full-stack overlay. The original db-only workflow remains available.
+x-app-env: &app-env
+  APP_ENV: local
+  DB_HOST: db
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  DB_SSLMODE: disable
+  HTTP_ADDR: "0.0.0.0:8080"
+  AUTH_ORIGIN: "http://127.0.0.1:${WEB_PORT:-8088}"
+  COOKIE_SECURE: "false"
+  LOCAL_VIDEO_ENABLED: "true"
+  VIDEO_WORKER_MODE: external
+  MEDIA_DELIVERY: nginx
+  MEDIA_DIR: /srv/media
+  MEDIA_TOTAL_BYTES: "10737418240"
+  MEDIA_JOB_BYTES: "1073741824"
+  MEDIA_MIN_FREE_BYTES: "536870912"
+  GIN_MODE: release
+  TRUSTED_PROXY_CIDRS: "172.30.84.0/24"
+
+x-app: &app
+  networks: [runtime]
+  init: true
+  restart: unless-stopped
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:size=32m,mode=1777"]
+  stop_grace_period: 30s
+  volumes: ["./storage:/srv/media"]
+  depends_on:
+    db: {condition: service_healthy}
+    storage-init: {condition: service_completed_successfully}
+  healthcheck:
+    test: [CMD, /app/rachata, healthcheck]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 20s
+  logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+
+services:
+  db:
+    networks: [default, runtime]
+    restart: unless-stopped
+    volumes:
+      # PostgreSQL runs these only for a NEW empty data volume.
+      - ./db/migrations/create_videos.sql:/docker-entrypoint-initdb.d/001-videos.sql:ro
+      - ./db/migrations/create_users_and_subscriptions.sql:/docker-entrypoint-initdb.d/002-users.sql:ro
+      - ./db/migrations/add_usernames_and_sessions.sql:/docker-entrypoint-initdb.d/003-sessions.sql:ro
+      - ./db/migrations/add_local_video_pipeline.sql:/docker-entrypoint-initdb.d/004-hls.sql:ro
+      - ./db/migrations/add_account_library.sql:/docker-entrypoint-initdb.d/005-library.sql:ro
+      - ./db/migrations/add_account_consistency.sql:/docker-entrypoint-initdb.d/006-consistency.sql:ro
+      - ./db/migrations/add_membership_management.sql:/docker-entrypoint-initdb.d/007-membership.sql:ro
+      - ./db/migrations/add_account_controls.sql:/docker-entrypoint-initdb.d/008-account-controls.sql:ro
+      - ./db/migrations/add_session_devices.sql:/docker-entrypoint-initdb.d/009-session-devices.sql:ro
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+  storage-init:
+    image: rachata-plus-api:local
+    build: {context: ./apps/api, target: api}
+    user: "0:0"
+    entrypoint: [/bin/sh, -c, "chown 10001:10001 /srv/media && chmod 700 /srv/media"]
+    volumes: ["./storage:/srv/media"]
+    network_mode: none
+    restart: "no"
+  api:
+    <<: *app
+    image: rachata-plus-api:local
+    build: {context: ./apps/api, target: api}
+    environment:
+      <<: *app-env
+      APP_MODE: api
+    cpus: "1.0"
+    mem_limit: 512m
+  worker:
+    <<: *app
+    image: rachata-plus-worker:local
+    build: {context: ./apps/api, target: worker}
+    environment:
+      <<: *app-env
+      APP_MODE: worker
+      FFMPEG_THREADS: "2"
+    cpus: "1.0"
+    mem_limit: 1g
+  web:
+    networks: [runtime]
+    image: rachata-plus-web:local
+    build: {context: ./apps/web}
+    ports: ["127.0.0.1:${WEB_PORT:-8088}:8080"]
+    init: true
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    volumes: ["./storage:/srv/media:ro"]
+    depends_on:
+      api: {condition: service_healthy}
+      worker: {condition: service_healthy}
+    cpus: "0.5"
+    mem_limit: 128m
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/health]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+
+networks:
+  runtime:
+    ipam:
+      config: [{subnet: "172.30.84.0/24"}]

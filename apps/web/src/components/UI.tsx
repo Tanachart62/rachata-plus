@@ -25,7 +25,7 @@ export function VideoGrid({ videos, loading = false }: { videos: Video[]; loadin
   return <div className="rp-grid">{videos.map(video => loading
     ? <div className="rp-sk-card" key={video.id}><Skeleton shape="cover" /><Skeleton shape="cardtitle" /><Skeleton shape="cardsub" /></div>
     : <a className="rp-video" key={video.id} href={`#/videos/${video.id}`} aria-label={`ดูรายละเอียด ${video.title}`}>
-        <span className="rp-cover">พื้นที่ภาพปก<span className="rp-duration">—:—</span></span>
+        <span className="rp-cover" aria-hidden="true">พื้นที่ภาพปก<span className="rp-duration">—:—</span></span>
         <span className="rp-cardtitle">{video.title}</span><span className="rp-cardsub">{video.category} · สำหรับสมาชิก</span>
       </a>)}</div>
 }
@@ -38,6 +38,6 @@ export function SaveButton({ saved, onToggle }: { saved: boolean; onToggle: () =
   return <button type="button" className="rp-softbutton" onClick={onToggle} aria-pressed={saved}><Icon name={saved ? 'check' : 'plus'} />{saved ? 'บันทึกแล้ว' : 'ดูภายหลัง'}</button>
 }
 
-export function MessagePage({ title, message }: { title: string; message: string }) {
-  return <main className="rp-login"><div className="rp-eyebrow">Rachata Plus</div><h1>{title}</h1><p>{message}</p><a className="rp-mainbutton rp-linkbutton" href="#/">กลับหน้าแรก</a></main>
+export function MessagePage({ title, message, actionHref = '#/', actionLabel = 'กลับหน้าแรก' }: { title: string; message: string; actionHref?: string; actionLabel?: string }) {
+  return <main className="rp-login"><div className="rp-eyebrow" lang="en">Rachata Plus</div><h1>{title}</h1><p>{message}</p><a className="rp-mainbutton rp-linkbutton" href={actionHref}>{actionLabel}</a></main>
 }

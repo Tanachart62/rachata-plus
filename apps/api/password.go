@@ -2,9 +2,11 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"golang.org/x/crypto/argon2"
+	"strings"
 )
 
 func hashPassword(password string) (string, error) {
@@ -44,4 +46,24 @@ func hashPassword(password string) (string, error) {
 	)
 
 	return encoded, nil
+}
+
+// Accept only the bounded Argon2id format produced by hashPassword.
+// A corrupt database value must not allocate unbounded memory.
+func verifyPassword(password, encoded string) bool {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" ||
+		parts[2] != "v=19" || parts[3] != "m=19456,t=2,p=1" {
+		return false
+	}
+	salt, err := base64.RawStdEncoding.Strict().DecodeString(parts[4])
+	if err != nil || len(salt) != 16 {
+		return false
+	}
+	want, err := base64.RawStdEncoding.Strict().DecodeString(parts[5])
+	if err != nil || len(want) != 32 {
+		return false
+	}
+	got := argon2.IDKey([]byte(password), salt, 2, 19*1024, 1, 32)
+	return subtle.ConstantTimeCompare(got, want) == 1
 }

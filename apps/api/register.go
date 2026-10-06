@@ -3,21 +3,25 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
-	"net/http"
-	"strings"
-	"time"
-	"unicode/utf8"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"log"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+	"unicode/utf8"
 )
 
 type registerRequest struct {
+	Username string `json:"username" binding:"required"`
 	Name     string `json:"name" binding:"required"`
 	Email    string `json:"email" binding:"required,email,max=254"`
 	Password string `json:"password" binding:"required"`
 }
+
+var usernamePattern = regexp.MustCompile(`^[a-z0-9_]{3,30}$`)
 
 func registerHandler(db *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -45,7 +49,12 @@ func registerHandler(db *pgxpool.Pool) gin.HandlerFunc {
 		}
 
 		req.Name = strings.TrimSpace(req.Name)
-		req.Email = strings.ToLower(req.Email)
+		req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+		req.Username = strings.ToLower(strings.TrimSpace(req.Username))
+		if !usernamePattern.MatchString(req.Username) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_username"})
+			return
+		}
 
 		nameLength := utf8.RuneCountInString(req.Name)
 		if nameLength == 0 || nameLength > 100 {
@@ -86,10 +95,11 @@ func registerHandler(db *pgxpool.Pool) gin.HandlerFunc {
 		err = db.QueryRow(
 			ctx,
 			`
-				INSERT INTO users (name, email, password_hash, role)
-				VALUES ($1, $2, $3, 'user')
+				INSERT INTO users (username, name, email, password_hash, role)
+				VALUES ($1, $2, $3, $4, 'user')
 				RETURNING id
 			`,
+			req.Username,
 			req.Name,
 			req.Email,
 			passwordHash,
@@ -99,6 +109,10 @@ func registerHandler(db *pgxpool.Pool) gin.HandlerFunc {
 			var dbErr *pgconn.PgError
 
 			if errors.As(err, &dbErr) {
+				if dbErr.Code == "23505" && dbErr.ConstraintName == "users_username_unique" {
+					c.JSON(http.StatusConflict, gin.H{"error": "username_already_exists"})
+					return
+				}
 				if dbErr.Code == "23505" &&
 					dbErr.ConstraintName == "users_email_unique" {
 					c.JSON(http.StatusConflict, gin.H{
@@ -127,10 +141,11 @@ func registerHandler(db *pgxpool.Pool) gin.HandlerFunc {
 		c.JSON(http.StatusCreated, gin.H{
 			"account_created": true,
 			"user": gin.H{
-				"id":    userID,
-				"name":  req.Name,
-				"email": req.Email,
-				"role":  "user",
+				"username": req.Username,
+				"id":       userID,
+				"name":     req.Name,
+				"email":    req.Email,
+				"role":     "user",
 			},
 		})
 	}

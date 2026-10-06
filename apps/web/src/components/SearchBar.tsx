@@ -1,11 +1,6 @@
 import { useRef, useState } from 'react'
 import { Icon } from './UI'
-
-export function getSearchQuery(path: string) {
-  if (path.split('?')[0] !== '/search') return ''
-  const params = new URLSearchParams(path.slice(path.indexOf('?') + 1))
-  return (params.get('q') ?? '').slice(0, 120)
-}
+import { getSearchQuery } from '../lib/search'
 
 export function SearchBar({ path }: { path: string }) {
   const [query, setQuery] = useState(() => getSearchQuery(path))

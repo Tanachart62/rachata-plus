@@ -57,7 +57,7 @@ export function PlanSkeleton() {
       <Skeleton shape="plan-banner" />
       <Skeleton shape="meta" />
       <Skeleton shape="title" />
-      {Array.from({ length: 4 }, (_, index) => (
+      {Array.from({ length: 2 }, (_, index) => (
         <div className="plan-feature" key={index}><Skeleton shape="line" /><Skeleton shape="line2" /></div>
       ))}
     </div>

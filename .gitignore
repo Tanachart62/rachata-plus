@@ -1,44 +1,67 @@
-# =========================
-# Environment Variables
-# =========================
+# Local environment and secrets (keep safe templates)
 .env
 .env.*
 !.env.example
+!.env.local.example
+secrets/
+.aws/
+*.pem
+*.key
+*.p12
+*.pfx
 
-# =========================
-# Frontend (apps/web)
-# =========================
-# Dependencies
+# Frontend dependencies, builds and caches
 node_modules/
-apps/web/node_modules/
-
-# Build Output
 dist/
-apps/web/dist/
-
-# Caches & Temporary Files
 .vite/
 .vite-temp/
-.tmp/
+.cache/
 *.tsbuildinfo
+
+# Go build outputs
+/apps/api/api
+/apps/api/api.exe
+/apps/api/rachata
+/apps/api/rachata.exe
+/apps/api/bin/
+/apps/api/coverage.out
+*.test
+*.test.exe
+__debug_bin*
+
+# Uploaded source videos, HLS and local database data
+/storage/
+/postgres_data/
+/pgdata/
+
+# Database backups (SQL migrations remain tracked)
+/backups/
+/backup/
+*.dump
+*.backup
+*.sql.gz
+*.sql.zip
+
+# Logs, temporary files and generated test reports
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+*.pid
+*.pid.lock
+.tmp/
+tmp/
+coverage/
+playwright-report/
+playwright/.cache/
+test-results/
 
-# =========================
-# Backend (apps/api - Go)
-# =========================
-# Compiled binaries (ถ้ามีการ build ไฟล์ Go)
-apps/api/api
-apps/api/api.exe
-apps/api/bin/
-__debug_bin*
-
-# =========================
-# OS & Editor (General)
-# =========================
+# OS and local editor settings
 .DS_Store
 Thumbs.db
+Desktop.ini
 .vscode/
 .idea/
 *.swp
+*.swo

@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
+    "lint": "oxlint src vite.config.ts",
+    "preview": "vite preview",
+    "test": "node ../../scripts/test-progress.mjs"
   },
   "dependencies": {
+    "hls.js": "^1.7.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

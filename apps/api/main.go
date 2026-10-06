@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,17 +12,37 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		if err := checkProcessHealth(); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
 }
 func run() error {
-	if err := godotenv.Load("../../.env"); err != nil && !os.IsNotExist(err) {
+	envFile := os.Getenv("ENV_FILE")
+	loadEnv := godotenv.Load
+	if envFile == "" {
+		envFile = "../../.env"
+	} else {
+		// An explicitly selected local file must override stale RDS variables.
+		loadEnv = godotenv.Overload
+	}
+	if err := loadEnv(envFile); err != nil && (os.Getenv("ENV_FILE") != "" || !os.IsNotExist(err)) {
 		return fmt.Errorf("load .env: %w", err)
+	}
+	runtime, err := readRuntimeConfig()
+	if err != nil {
+		return err
 	}
 
 	for _, key := range []string{
@@ -31,7 +52,6 @@ func run() error {
 		"POSTGRES_PORT",
 		"DB_HOST",
 		"DB_SSLMODE",
-		"HTTP_ADDR",
 	} {
 		if os.Getenv(key) == "" {
 			return fmt.Errorf("missing environment variable: %s", key)
@@ -78,17 +98,82 @@ func run() error {
 		return fmt.Errorf("cannot initialize database pool: check configuration and CA file")
 	}
 	defer db.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	router := gin.Default()
 
-	if err := router.SetTrustedProxies(nil); err != nil {
+	proxies, err := trustedProxyCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
+	if err != nil {
+		return err
+	}
+	if err := router.SetTrustedProxies(proxies); err != nil {
 		return err
 	}
 
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readyHandler(db))
-	router.POST("/auth/register", registerHandler(db))
-	return router.Run(os.Getenv("HTTP_ADDR"))
+	var auth *authConfig
+	if runtime.mode == "api" {
+		auth, err = newAuthConfig(os.Getenv("AUTH_ORIGIN"), os.Getenv("COOKIE_SECURE"))
+		if err != nil {
+			return err
+		}
+		accounts := router.Group("/auth")
+		accounts.Use(auth.protectWrites())
+		accounts.POST("/register", registerHandler(db))
+		accounts.POST("/login", auth.loginHandler(db))
+		accounts.POST("/logout", auth.logoutHandler(db))
+		accounts.GET("/me", auth.meHandler(db))
+		auth.accountRoutes(accounts, db)
+	}
+	if runtime.videos {
+		videos, err := newVideoService(db, auth, os.Getenv("MEDIA_DIR"))
+		if err != nil {
+			return err
+		}
+		videos.nginxDelivery = runtime.delivery == "nginx"
+		if runtime.mode == "api" {
+			videos.routes(router)
+		}
+		if runtime.mode == "worker" || runtime.worker == "embedded" {
+			if err := videos.initTranscoder(runtime.threads); err != nil {
+				return err
+			}
+			done := make(chan struct{})
+			go func() { defer close(done); videos.worker(ctx) }()
+			defer func() { cancel(); <-done }()
+			if runtime.mode == "worker" {
+				router.GET("/worker/ready", func(c *gin.Context) {
+					if !videos.leaseActive.Load() {
+						c.Status(503)
+						return
+					}
+					readyHandler(db)(c)
+				})
+			}
+		}
+	}
+	server := &http.Server{
+		Addr: runtime.addr, Handler: router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Minute,
+		WriteTimeout:      15 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		server.Shutdown(shutdown)
+	}()
+	err = server.ListenAndServe()
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }
 
 func healthHandler(c *gin.Context) {

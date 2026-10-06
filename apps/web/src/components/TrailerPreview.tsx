@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Icon } from './UI'
 import type { Video } from '../types'
+import { HlsPlayer } from './HlsPlayer'
 
 export function TrailerPreview({ video }: { video: Video }) {
   const [open, setOpen] = useState(false)
@@ -15,15 +16,15 @@ export function TrailerPreview({ video }: { video: Video }) {
           <Icon name={open ? 'close' : 'play'} />{open ? 'ปิดตัวอย่าง' : 'ดูตัวอย่างฟรี'}
         </button>
       </div>
-      {open && (
-        <div className="rp-player trailer-player" id={id}>
-          <div className="rp-player-center">
+      <div hidden={!open} id={id}>
+        <div className="rp-player trailer-player">
+          {video.previewUrl ? (open && <HlsPlayer src={video.previewUrl} title={`ตัวอย่างฟรี · ${video.title}`} />) : <div className="rp-player-center">
             <button type="button" aria-label={playing ? 'หยุดตัวอย่างฟรี' : 'เล่นตัวอย่างฟรี'} aria-pressed={playing} onClick={() => setPlaying(!playing)}><Icon name={playing ? 'pause' : 'play'} /></button>
             <strong>ตัวอย่าง · {video.title}</strong>
-            <p role="status">{playing ? 'จำลองการเล่นตัวอย่างฟรี' : 'ยังไม่มีไฟล์ตัวอย่าง · เครื่องเล่นจำลอง'}</p>
-          </div>
+            <p role="status">{video.processingStatus ? 'วิดีโอยังแปลงไม่เสร็จ' : playing ? 'จำลองการเล่นตัวอย่างฟรี' : 'ยังไม่มีไฟล์ตัวอย่าง · เครื่องเล่นจำลอง'}</p>
+          </div>}
         </div>
-      )}
+      </div>
     </section>
   )
 }

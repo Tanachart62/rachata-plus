@@ -7,4 +7,5 @@ export const sampleVideos: Video[] = Array.from({ length: 8 }, (_, index) => ({
   description: 'พื้นที่สำหรับคำอธิบายวิดีโอสั้น ๆ บอกเล่าเรื่องราวก่อนเริ่มรับชม',
   category: ['บันเทิง', 'ความรู้', 'ไลฟ์สไตล์', 'อื่น ๆ'][index % 4],
   durationSeconds: 750,
+  publicationStatus: 'published',
 }))

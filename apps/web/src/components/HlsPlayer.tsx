@@ -1,5 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type Hls from 'hls.js'
+import { PlaybackControls } from './PlaybackControls'
+
+function qualityLabel(height: number) {
+  return height === 1440 ? '1440p (2K)' : height === 2160 ? '2160p (4K)' : height ? `${height}p` : 'คุณภาพต้นฉบับ'
+}
 
 export function HlsPlayer({
   src,
@@ -12,6 +17,12 @@ export function HlsPlayer({
   initialPosition?: number
   onProgress?: (seconds: number, flush?: boolean) => Promise<void>
 }) {
+  const qualityId = useId()
+  const qualityHintId = useId()
+  const playerRef = useRef<HTMLDivElement>(null)
+  const hlsRef = useRef<Hls | null>(null)
+  const [quality, setQuality] = useState({ source: '', levels: [] as { value: string; label: string }[], selected: '-1', native: false })
+  const nativeResume = useRef<{ position: number; playing: boolean } | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef(onProgress)
   const resume = useRef({ src, position: initialPosition })
@@ -30,14 +41,17 @@ export function HlsPlayer({
       acknowledged.current = -1
     }
     let hls: Hls | undefined
+    const controller = new AbortController()
     let disposed = false
     let played = false
     let broken = false
     let lastReport = 0
     let lastRequested = -1
     const metadata = () => {
-      const position = resume.current.position
+      const position = nativeResume.current?.position ?? resume.current.position
       if (position > 0 && position < video.duration) video.currentTime = position
+      if (nativeResume.current?.playing) void video.play().catch(() => {})
+      nativeResume.current = null
     }
     const failed = () => {
       broken = true
@@ -91,30 +105,39 @@ export function HlsPlayer({
     video.addEventListener('seeked', flush)
     window.addEventListener('pagehide', flush)
     document.addEventListener('visibilitychange', hidden)
-    if (video.canPlayType('application/vnd.apple.mpegurl')) video.src = src
-    else
-      void import('hls.js')
-        .then(({ default: Hls }) => {
-          if (disposed) return
-          if (!Hls.isSupported()) {
-            failed()
-            return
-          }
-          hls = new Hls({ maxBufferLength: 20 })
-          hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) {
-              failed()
-              hls?.destroy()
-              hls = undefined
-            }
-          })
-          hls.loadSource(src)
-          hls.attachMedia(video)
-        })
-        .catch(failed)
+    const nativePlayback = async () => {
+      if (!video.canPlayType('application/vnd.apple.mpegurl')) { failed(); return }
+      video.src = src
+      let levels: {value:string;label:string}[] = []
+      try {
+        const response = await fetch(src, { signal: controller.signal })
+        if (!response.ok) throw new Error('manifest unavailable')
+        const master = await response.text()
+        levels = [...master.matchAll(/^([0-9]{1,4})p\.m3u8(?:\?[^\s]*)?\s*$/gm)].map(match => ({ value: match[0].trim(), label: qualityLabel(Number(match[1])) }))
+      } catch { /* Native playback can still handle a legacy media playlist. */ }
+      if (!disposed) setQuality({source:src,levels,selected:'-1',native:true})
+    }
+    void import('hls.js').then(({ default: Hls }) => {
+      if (disposed) return
+      if (!Hls.isSupported()) { void nativePlayback(); return }
+      hls = new Hls({ maxBufferLength: 20 })
+      hlsRef.current = hls
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (disposed || !hls) return
+        setQuality({source:src,levels:hls.levels.map((level,index) => ({value:String(index),label:qualityLabel(level.height)})),selected:'-1',native:false})
+      })
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) { failed(); hls?.destroy(); hls = undefined; hlsRef.current = null }
+      })
+      hls.loadSource(src)
+      hls.attachMedia(video)
+    }).catch(() => { if (!disposed) void nativePlayback() })
     return () => {
       flush()
       disposed = true
+      controller.abort()
+      hlsRef.current = null
+      nativeResume.current = null
       video.removeEventListener('loadedmetadata', metadata)
       video.removeEventListener('error', failed)
       video.removeEventListener('timeupdate', progress)
@@ -132,16 +155,44 @@ export function HlsPlayer({
     // Initial position is a seed; changing history props must not restart HLS.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, attempt])
+  const qualityMenu = (
+    <div className="rp-player-quality">
+            <label className="rp-sr" htmlFor={qualityId}>คุณภาพวิดีโอ</label>
+            <select aria-describedby={qualityHintId} id={qualityId} disabled={quality.source !== src || !!error} value={quality.source === src ? quality.selected : '-1'} onChange={event => {
+              const selected = event.target.value
+              setQuality(previous => ({...previous,selected}))
+              if (hlsRef.current) hlsRef.current.nextLevel = Number(selected)
+              else if (quality.native && videoRef.current) {
+                const video = videoRef.current
+                nativeResume.current = { position: video.currentTime, playing: !video.paused }
+                video.src = selected === '-1' ? src : new URL(selected, new URL(src, window.location.href)).href
+                video.load()
+              }
+            }}>
+              <option value="-1">อัตโนมัติ</option>
+              {quality.source === src && quality.levels.map(level => <option key={level.value} value={level.value}>{level.label}</option>)}
+            </select>
+            <span className="rp-sr" id={qualityHintId}>{quality.source === src && quality.levels.length === 0 ? 'เบราว์เซอร์จัดการคุณภาพอัตโนมัติ' : 'แสดงเฉพาะความละเอียดที่ไฟล์นี้มี'}</span>
+          </div>
+  )
   return (
-    <div style={{ width: '100%' }}>
-      <video
-        ref={videoRef}
-        controls
-        playsInline
-        preload="metadata"
-        aria-label={title}
-        style={{ width: '100%', aspectRatio: '16 / 9', display: 'block', background: '#000' }}
-      />
+    <div ref={playerRef} className="rp-hls-player">
+      <div className="rp-hls-stage">
+        <video
+          ref={videoRef}
+          tabIndex={0}
+          onKeyDown={event => {
+            const video = event.currentTarget
+            if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); if (video.paused) void video.play().catch(() => {}); else video.pause() }
+            else if (['ArrowLeft', 'ArrowRight'].includes(event.key) && Number.isFinite(video.duration)) { event.preventDefault(); video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + (event.key === 'ArrowRight' ? 5 : -5))) }
+          }}
+          playsInline
+          preload="metadata"
+          aria-label={title}
+          style={{ width: '100%', aspectRatio: '16 / 9', display: 'block', background: '#000' }}
+        />
+        <PlaybackControls videoRef={videoRef} playerRef={playerRef} quality={qualityMenu} />
+      </div>
       <p className={error ? 'auth-error' : 'rp-sr'} role="status">
         {error}
       </p>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon, SaveButton, Skeleton, VideoSection } from '../components/UI'
 import type { Video, Viewer } from '../types'
-import { HlsPlayer } from '../components/HlsPlayer'
+import { ManagedPlayback } from '../components/ManagedPlayback'
 import { durationLabel } from '../lib/video-time'
 
 function time(seconds: number) {
@@ -17,6 +17,7 @@ export function WatchPage({
   onToggle,
   initialPosition,
   onProgress,
+  userId,
 }: {
   video: Video
   videos: Video[]
@@ -26,6 +27,7 @@ export function WatchPage({
   onToggle: () => void
   initialPosition: number
   onProgress: (videoId: number, position: number, flush?: boolean) => Promise<void>
+  userId: number | null
 }) {
   const progress = useRef(onProgress)
   useEffect(() => {
@@ -92,8 +94,10 @@ export function WatchPage({
               </a>
             )}
           </div>
-        ) : video.playbackUrl ? (
-          <HlsPlayer
+        ) : video.playbackUrl && userId ? (
+          <ManagedPlayback
+            videoId={video.id}
+            userId={userId}
             src={video.playbackUrl}
             title={video.title}
             initialPosition={initialPosition}

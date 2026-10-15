@@ -21,6 +21,7 @@ export function readVideo(value: unknown): Video {
     )
       throw new ApiError('service_unavailable')
   }
+  if (value.coverUrl !== undefined && (typeof value.coverUrl !== 'string' || !/^\/api\/videos\/\d+\/cover$/.test(value.coverUrl))) throw new ApiError('service_unavailable')
   if (value.processingError !== undefined && typeof value.processingError !== 'string')
     throw new ApiError('service_unavailable')
   return {
@@ -33,6 +34,7 @@ export function readVideo(value: unknown): Video {
     processingStatus: value.processingStatus as Video['processingStatus'],
     processingError: value.processingError as string | undefined,
     playbackUrl: value.playbackUrl as string | undefined,
+    coverUrl: value.coverUrl as string | undefined,
     previewUrl: value.previewUrl as string | undefined,
   }
 }

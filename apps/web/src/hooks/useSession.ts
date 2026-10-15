@@ -82,11 +82,11 @@ export function useSession() {
     return () => window.clearTimeout(timer)
   }, [user, revalidate, apply])
   const broadcast = useCallback(() => channel.current?.postMessage('changed'), [])
-  const authenticated = (next: ApiUser) => {
+  const authenticated = (next: ApiUser, destination: '/' | '/profile' = '/profile') => {
     restore.current?.abort()
     apply(next, true)
     broadcast()
-    window.location.hash = '/profile'
+    window.location.hash = destination
   }
   const logout = async () => {
     if (signingOut || !user) return

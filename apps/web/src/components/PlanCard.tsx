@@ -14,16 +14,19 @@ interface PlanCardProps {
   plan: MembershipPlan
   selected: boolean
   onSelect: (id: string) => void
+  disabled?: boolean
+  unavailableLabel?: string
 }
 
-export function PlanCard({ plan, selected, onSelect }: PlanCardProps) {
+export function PlanCard({ plan, selected, onSelect, disabled = false, unavailableLabel }: PlanCardProps) {
   return (
-    <label className={`plan-card ${selected ? 'is-selected' : ''}`}>
+    <label className={`plan-card ${selected ? 'is-selected' : ''} ${disabled ? 'is-unavailable' : ''}`}>
       <input
         type="radio"
         name="membership-plan"
         value={plan.id}
         checked={selected}
+        disabled={disabled}
         onChange={() => onSelect(plan.id)}
         aria-labelledby={`plan-name-${plan.id}`}
         aria-describedby={`plan-price-${plan.id}`}
@@ -46,7 +49,7 @@ export function PlanCard({ plan, selected, onSelect }: PlanCardProps) {
           </span>
         ))}
       </span>
-      <span className="plan-selection" aria-hidden="true">{selected ? 'เลือกแล้ว' : 'เลือกแพ็กเกจนี้'}</span>
+      <span className="plan-selection">{disabled ? unavailableLabel : selected ? 'เลือกแล้ว' : 'เลือกแพ็กเกจนี้'}</span>
     </label>
   )
 }

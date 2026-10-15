@@ -1,5 +1,6 @@
 import { moveTab } from '../lib/tabs'
 import { ProfileSessions } from '../components/ProfileSessions'
+import { ProfileAvatar } from '../components/ProfileAvatar'
 import type { ApiUser } from '../lib/auth'
 import { ChangePasswordForm } from '../components/ChangePasswordForm'
 import { Icon, Skeleton, VideoSection } from '../components/UI'
@@ -66,7 +67,7 @@ export function ProfilePage({
       </div>
       <div className="rp-profile-layout">
         <aside className="rp-profile-sidebar">
-          {loading ? <Skeleton shape="avatar" /> : <div className="rp-avatar">รูปโปรไฟล์</div>}
+          {loading ? <Skeleton shape="avatar" /> : <ProfileAvatar key={sessionUser?.id ?? profile.email} userId={sessionUser?.id ?? 0} name={profile.name} />}
           <div>
             {loading ? (
               <>

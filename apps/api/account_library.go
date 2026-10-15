@@ -67,7 +67,7 @@ func (a *authConfig) library(db *pgxpool.Pool) gin.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
-		rows, err := db.Query(ctx, `SELECT w.video_id,w.created_at,v.id,v.title,v.description,v.category,v.duration_seconds,v.publication_status,v.status,v.processing_error FROM watchlist w JOIN videos v ON v.id=w.video_id
+		rows, err := db.Query(ctx, `SELECT w.video_id,w.created_at,v.id,v.title,v.description,v.category,v.duration_seconds,v.publication_status,v.status,v.processing_error,v.has_cover FROM watchlist w JOIN videos v ON v.id=w.video_id
  WHERE w.user_id=$1 AND v.deleted_at IS NULL AND (v.publication_status='published' OR $2) AND (w.created_at,w.video_id)<($3,$4)
  ORDER BY w.created_at DESC,w.video_id DESC LIMIT $5`, u.ID, u.Role == "admin", sc.At, sc.ID, libraryPageSize+1)
 		if err != nil {
@@ -102,7 +102,7 @@ func (a *authConfig) library(db *pgxpool.Pool) gin.HandlerFunc {
 			accountFailure(c, err)
 			return
 		}
-		rows, err = db.Query(ctx, `SELECT h.video_id,h.position_seconds,h.watched_at,h.revision,v.id,v.title,v.description,v.category,v.duration_seconds,v.publication_status,v.status,v.processing_error FROM watch_history h JOIN videos v ON v.id=h.video_id
+		rows, err = db.Query(ctx, `SELECT h.video_id,h.position_seconds,h.watched_at,h.revision,v.id,v.title,v.description,v.category,v.duration_seconds,v.publication_status,v.status,v.processing_error,v.has_cover FROM watch_history h JOIN videos v ON v.id=h.video_id
  WHERE h.user_id=$1 AND v.deleted_at IS NULL AND (v.publication_status='published' OR $2) AND (h.watched_at,h.video_id)<($3,$4)
  ORDER BY h.watched_at DESC,h.video_id DESC LIMIT $5`, u.ID, u.Role == "admin", hc.At, hc.ID, libraryPageSize+1)
 		if err != nil {
@@ -184,18 +184,27 @@ func (a *authConfig) saveVideo(db *pgxpool.Pool) gin.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
+		tx, locked, ok := beginAccountMutation(c, db, ctx, req.ExpectedUserID)
+		if !ok {
+			return
+		}
+		defer rollback(tx)
+		u = locked.User
 		var err error
 		if !*req.Saved {
-			_, err = db.Exec(ctx, `DELETE FROM watchlist WHERE user_id=$1 AND video_id=$2`, u.ID, id)
+			_, err = tx.Exec(ctx, `DELETE FROM watchlist WHERE user_id=$1 AND video_id=$2`, u.ID, id)
 		} else {
 			var available bool
-			err = db.QueryRow(ctx, `WITH available AS (SELECT id FROM videos WHERE id=$2 AND deleted_at IS NULL AND (publication_status='published' OR $3)), inserted AS (
+			err = tx.QueryRow(ctx, `WITH available AS (SELECT id FROM videos WHERE id=$2 AND deleted_at IS NULL AND (publication_status='published' OR $3)), inserted AS (
  INSERT INTO watchlist(user_id,video_id) SELECT $1,id FROM available ON CONFLICT(user_id,video_id) DO NOTHING RETURNING video_id)
  SELECT EXISTS(SELECT 1 FROM available)`, u.ID, id, u.Role == "admin").Scan(&available)
 			if err == nil && !available {
 				c.JSON(404, gin.H{"error": "video_not_found"})
 				return
 			}
+		}
+		if err == nil {
+			err = tx.Commit(ctx)
 		}
 		if err != nil {
 			accountFailure(c, err)
@@ -261,10 +270,20 @@ func (a *authConfig) watchProgress(db *pgxpool.Pool) gin.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
+		tx, locked, ok := beginAccountMutation(c, db, ctx, req.ExpectedUserID)
+		if !ok {
+			return
+		}
+		defer rollback(tx)
+		u = locked.User
+		if u.Role != "admin" && !u.Member {
+			c.JSON(403, gin.H{"error": "membership_required"})
+			return
+		}
 		var revision int64
 		var position int
 		var when time.Time
-		err := db.QueryRow(ctx, `WITH available AS (SELECT id,LEAST($3,duration_seconds) AS position FROM videos
+		err := tx.QueryRow(ctx, `WITH available AS (SELECT id,LEAST($3,duration_seconds) AS position FROM videos
  WHERE id=$2 AND status='ready' AND deleted_at IS NULL AND (publication_status='published' OR $4))
  INSERT INTO watch_history(user_id,video_id,position_seconds,revision)
  SELECT $1,id,position,$5+1 FROM available
@@ -273,7 +292,7 @@ func (a *authConfig) watchProgress(db *pgxpool.Pool) gin.HandlerFunc {
  WHERE watch_history.revision=$5 RETURNING revision,position_seconds,watched_at`, u.ID, id, *req.Position, u.Role == "admin", *req.ExpectedRevision).Scan(&revision, &position, &when)
 		if errors.Is(err, pgx.ErrNoRows) {
 			var available bool
-			err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM videos WHERE id=$1 AND status='ready' AND deleted_at IS NULL AND (publication_status='published' OR $2))`, id, u.Role == "admin").Scan(&available)
+			err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM videos WHERE id=$1 AND status='ready' AND deleted_at IS NULL AND (publication_status='published' OR $2))`, id, u.Role == "admin").Scan(&available)
 			if err != nil {
 				accountFailure(c, err)
 				return
@@ -284,6 +303,9 @@ func (a *authConfig) watchProgress(db *pgxpool.Pool) gin.HandlerFunc {
 				c.JSON(409, gin.H{"error": "progress_conflict"})
 			}
 			return
+		}
+		if err == nil {
+			err = tx.Commit(ctx)
 		}
 		if err != nil {
 			accountFailure(c, err)

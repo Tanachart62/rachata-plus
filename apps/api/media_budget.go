@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -36,6 +38,10 @@ func directoryBytes(ctx context.Context, root string, skip map[string]int64) (in
 	var size int64
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			// Other owners may remove older generations while we measure storage.
+			if path != root && errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			return err
 		}
 		if ctx.Err() != nil {
@@ -61,6 +67,9 @@ func directoryBytes(ctx context.Context, root string, skip map[string]int64) (in
 		if !d.IsDir() {
 			info, err := d.Info()
 			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return nil
+				}
 				return err
 			}
 			size += info.Size()
@@ -72,11 +81,23 @@ func directoryBytes(ctx context.Context, root string, skip map[string]int64) (in
 
 // Database advisory locking coordinates API and worker reservations across
 // processes. Count untracked/legacy files as well, not just new DB records.
+type transactionBeginner interface {
+	Begin(context.Context) (pgx.Tx, error)
+}
+type rowExecutor interface {
+	rowQuerier
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
 func (s *videoService) reserveMedia(ctx context.Context, key string, upload bool) error {
+	return s.reserveMediaOn(ctx, s.db, key, upload)
+}
+func (s *videoService) reserveMediaOn(ctx context.Context, db transactionBeginner, key string, upload bool) error {
 	if !storageKeyPattern.MatchString(key) {
 		return fmt.Errorf("invalid storage key")
 	}
-	tx, err := s.db.Begin(ctx)
+	tx, err := db.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -152,31 +173,52 @@ func (s *videoService) releaseMedia(key string) {
 func (s *videoService) settleMedia(key string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	size, err := directoryBytes(ctx, filepath.Join(s.root, key), nil)
-	if err == nil && size > 0 {
-		_, _ = s.db.Exec(ctx, `UPDATE media_reservations SET reserved_bytes=$2,lease_until=NULL WHERE storage_key=$1`, key, size)
-	}
+	_ = s.settleMediaOn(ctx, s.db, key)
 }
-func (s *videoService) cleanAbandonedUploads(ctx context.Context) {
+func (s *videoService) settleMediaOn(ctx context.Context, conn rowExecutor, key string) error {
+	size, err := directoryBytes(ctx, filepath.Join(s.root, key), nil)
+	if err != nil {
+		return err
+	}
+	if size <= 0 {
+		return nil
+	}
+	_, err = conn.Exec(ctx, `UPDATE media_reservations SET reserved_bytes=$2,lease_until=NULL WHERE storage_key=$1`, key, size)
+	return err
+}
+func (s *videoService) cleanAbandonedUploads(ctx context.Context, conn rowExecutor) error {
 	query, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	rows, err := s.db.Query(query, `SELECT storage_key FROM media_reservations r WHERE lease_until<NOW() AND NOT EXISTS(SELECT 1 FROM videos v WHERE v.storage_key=r.storage_key) LIMIT 10`)
+	if _, err := conn.Exec(query, `DELETE FROM playback_leases WHERE token_hash IN (SELECT token_hash FROM playback_leases WHERE expires_at<=NOW() ORDER BY expires_at LIMIT 1000) AND expires_at<=NOW()`); err != nil {
+		return err
+	}
+	rows, err := conn.Query(query, `SELECT storage_key FROM media_reservations r WHERE lease_until<NOW() AND NOT EXISTS(SELECT 1 FROM videos v WHERE v.storage_key=r.storage_key) LIMIT 10`)
 	if err != nil {
-		return
+		return err
 	}
 	keys := []string{}
 	for rows.Next() {
 		var key string
-		if rows.Scan(&key) == nil {
-			keys = append(keys, key)
+		if err = rows.Scan(&key); err != nil {
+			break
 		}
+		keys = append(keys, key)
+	}
+	if err == nil {
+		err = rows.Err()
 	}
 	rows.Close()
+	if err != nil {
+		return err
+	}
 	for _, key := range keys {
 		if storageKeyPattern.MatchString(key) && os.RemoveAll(filepath.Join(s.root, key)) == nil {
-			s.releaseMedia(key)
+			if _, err = conn.Exec(ctx, `DELETE FROM media_reservations WHERE storage_key=$1`, key); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 func (s *videoService) transcode(ctx context.Context, key string) (duration int, processErr error) {
 	reserve, cancelReserve := context.WithTimeout(ctx, 10*time.Second)
@@ -185,6 +227,13 @@ func (s *videoService) transcode(ctx context.Context, key string) (duration int,
 	if err != nil {
 		return 0, err
 	}
+	duration, processErr = s.transcodeGeneration(ctx, key, 0)
+	s.settleMedia(key)
+	return
+}
+
+// No database commands here: only the owner connection may settle or finish.
+func (s *videoService) transcodeGeneration(ctx context.Context, key string, generation int64) (duration int, processErr error) {
 	job, cancel := context.WithCancel(ctx)
 	monitored := make(chan struct{})
 	failure := make(chan error, 1)
@@ -209,6 +258,12 @@ func (s *videoService) transcode(ctx context.Context, key string) (duration int,
 					}
 				}
 				if err != nil {
+					// Shutdown can cancel an in-flight filesystem walk after the
+					// codec succeeds. That is not a storage failure. The codec and
+					// final independent size check handle actual job cancellation.
+					if job.Err() != nil {
+						return
+					}
 					failure <- err
 					cancel()
 					return
@@ -236,10 +291,9 @@ func (s *videoService) transcode(ctx context.Context, key string) (duration int,
 		}
 		if processErr != nil {
 			for _, kind := range []string{"full", "preview"} {
-				_ = os.RemoveAll(filepath.Join(s.root, key, kind))
+				_ = os.RemoveAll(filepath.Join(s.root, hlsDirectory(key, generation), kind))
 			}
 		}
-		s.settleMedia(key)
 	}()
-	return s.transcodeFiles(job, key)
+	return s.transcodeFilesGeneration(job, key, generation)
 }

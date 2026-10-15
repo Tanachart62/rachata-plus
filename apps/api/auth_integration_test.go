@@ -66,7 +66,7 @@ func TestLocalAuthIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, file := range []string{"create_videos.sql", "create_users_and_subscriptions.sql", "add_usernames_and_sessions.sql", "add_local_video_pipeline.sql", "add_account_library.sql", "add_account_consistency.sql", "add_membership_management.sql", "add_account_controls.sql", "add_session_devices.sql"} {
+	for _, file := range []string{"create_videos.sql", "create_users_and_subscriptions.sql", "add_usernames_and_sessions.sql", "add_local_video_pipeline.sql", "add_account_library.sql", "add_account_consistency.sql", "add_membership_management.sql", "add_account_controls.sql", "add_session_devices.sql", "add_video_covers.sql", "allow_video_reprocessing.sql", "add_profile_avatars.sql", "add_playback_leases_and_generations.sql"} {
 		sql, err := os.ReadFile("../../db/migrations/" + file)
 		if err != nil {
 			t.Fatal(err)
@@ -361,5 +361,11 @@ func TestLocalAuthIntegration(t *testing.T) {
 	}
 	testMediaReservations(t, ctx, db)
 	testMembershipManagement(t, ctx, db, a)
+	testProfileAvatars(t, ctx, db, a)
+	t.Run("authorization-lifecycle", func(t *testing.T) {
+		testAuthorizationLifecycle(t, ctx, db, a)
+	})
+	t.Run("playback-entitlements", func(t *testing.T) { testPlaybackEntitlements(t, ctx, db, a) })
+	t.Run("worker-fencing", func(t *testing.T) { testWorkerFencing(t, ctx, db) })
 
 }

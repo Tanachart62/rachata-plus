@@ -154,7 +154,7 @@ export function AdminMembersPage({ actorId, onChanged }: { actorId: number; onCh
           <div className="rp-field"><label htmlFor="membership-plan">แพ็กเกจ</label><select id="membership-plan" value={plan} disabled={busy} onChange={event => setPlan(event.target.value)}>{membershipPlans.filter(item => !item.free).map(item => <option key={item.id} value={item.id}>{item.name} · {item.price}</option>)}</select></div>
           <label className="rp-field" htmlFor="membership-days">จำนวนวันที่เพิ่ม (1–365)<input id="membership-days" type="number" min={1} max={365} step={1} required value={days} disabled={busy} onChange={event => setDays(Number(event.target.value))} /></label>
         </div>
-        <p>หากยังมีสมาชิกอยู่ จะเพิ่มวันจากวันหมดอายุเดิม หากหมดอายุแล้วจะเริ่มจากวันนี้ คุณภาพวิดีโอปัจจุบันสูงสุด 720p ทุกแพ็กเกจ</p>
+        <p>หากยังมีสมาชิกอยู่ จะเพิ่มวันจากวันหมดอายุเดิม หากหมดอายุแล้วจะเริ่มจากวันนี้ Basic สูงสุด 1080p / 2 จอ, Standard สูงสุด 1440p (2K) / 2 จอ, Premium สูงสุด 2160p (4K) / 4 จอ ตามไฟล์ต้นฉบับ</p>
         <div className="rp-actions"><button ref={grantButton} className="rp-mainbutton" disabled={busy || target.accountStatus === "suspended"}>เปิด / ต่ออายุสมาชิก</button><button ref={revokeButton} type="button" className="rp-softbutton" disabled={busy || !target.member} onClick={() => { setError(''); setReview('revoke') }}>ยกเลิกสิทธิ์สมาชิก</button></div>
       </form>}
       {!review && <section aria-labelledby="account-controls-heading">

@@ -29,6 +29,7 @@ func readMembershipAccount(ctx context.Context, db rowQuerier, id int64) (accoun
 }
 
 func (a *authConfig) membershipRoutes(g *gin.RouterGroup, db *pgxpool.Pool) {
+	g.POST("/membership/demo-checkout", a.demoCheckout(db))
 	g.GET("/admin/memberships/:id/sessions", a.listSessions(db, false))
 	g.GET("/admin/memberships/accounts", a.listMembershipAccounts(db))
 	g.GET("/admin/memberships", a.findMembership(db))

@@ -43,6 +43,8 @@ func rollback(tx pgx.Tx) {
 
 // The caller owns the deadline. Recheck the session in a fresh statement after
 // waiting for the user lock: the JOIN snapshot can predate session revocation.
+// Lock the token row too: logging into a different account deletes the old
+// token while holding that other account's user lock.
 func lockedAccount(ctx context.Context, db *pgxpool.Pool, hash []byte, expected int64) (pgx.Tx, lockedUser, error) {
 	var u lockedUser
 	tx, err := db.Begin(ctx)
@@ -50,7 +52,7 @@ func lockedAccount(ctx context.Context, db *pgxpool.Pool, hash []byte, expected 
 		return nil, u, err
 	}
 	err = tx.QueryRow(ctx, `SELECT u.id,u.username,u.name,u.email,u.role,u.password_hash
- FROM users u JOIN sessions t ON t.user_id=u.id WHERE t.token_hash=$1 AND t.expires_at>NOW() FOR UPDATE OF u`, hash).
+ FROM users u JOIN sessions t ON t.user_id=u.id WHERE t.token_hash=$1 AND t.expires_at>NOW() FOR UPDATE OF u,t`, hash).
 		Scan(&u.User.ID, &u.User.Username, &u.User.Name, &u.User.Email, &u.User.Role, &u.Password)
 	if err == nil {
 		u.User, err = readSessionUser(ctx, tx, hash)
@@ -99,6 +101,8 @@ func checkOwner(c *gin.Context, u accountResponse, expected int64) bool {
 }
 func (a *authConfig) accountRoutes(g *gin.RouterGroup, db *pgxpool.Pool) {
 	a.membershipRoutes(g, db)
+	g.GET("/avatar", a.profileAvatar(db))
+	g.POST("/avatar", a.uploadAvatar(db))
 	g.GET("/sessions", a.listSessions(db, true))
 	g.POST("/sessions/:sessionId/revoke", a.revokeOwnSession(db))
 	g.POST("/profile", a.updateProfile(db))

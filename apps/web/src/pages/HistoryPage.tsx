@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Icon, Skeleton } from '../components/UI'
+import { Icon, Skeleton, VideoGrid } from '../components/UI'
 import type { Video, WatchHistoryEntry } from '../types'
 import { apiAuthEnabled } from '../lib/auth'
 
@@ -7,12 +7,15 @@ export function HistoryPage({
   history,
   videos,
   loading,
+  saved,
 }: {
   history: WatchHistoryEntry[]
   videos: Video[]
   loading: boolean
+  saved: Set<number>
 }) {
   const [filter, setFilter] = useState('all')
+  const savedVideos = videos.filter(video => saved.has(video.id))
   const available = useMemo(() => {
     const byId = new Map(videos.map((video) => [video.id, video]))
     return history
@@ -35,14 +38,15 @@ export function HistoryPage({
         <div className="rp-eyebrow" lang="en">
           Pick up where you left off
         </div>
-        <h1>ประวัติการรับชม</h1>
-        <p>กลับไปดูเรื่องราวที่ค้างไว้ หรือดูเรื่องโปรดอีกครั้ง</p>
+        <h1>ประวัติและดูภายหลัง</h1>
+        <p>กลับไปดูเรื่องราวที่ค้างไว้ หรือเลือกวิดีโอที่บันทึกไว้ดูภายหลัง</p>
       </div>
-      <div className="history-filters" role="group" aria-label="กรองประวัติ">
+      <div className="history-filters" role="group" aria-label="เลือกประวัติหรือดูภายหลัง">
         {[
           ['all', 'ทั้งหมด'],
           ['continue', 'ยังดูไม่จบ'],
           ['complete', 'ดูจบแล้ว'],
+          ['saved', 'ดูภายหลัง'],
         ].map(([value, label]) => (
           <button
             type="button"
@@ -55,7 +59,7 @@ export function HistoryPage({
         ))}
       </div>
       <p className="rp-sr" role="status">
-        {loading ? '' : `พบประวัติ ${results.length} รายการ`}
+        {loading ? '' : filter === 'saved' ? `ดูภายหลัง ${savedVideos.length} รายการ` : `พบประวัติ ${results.length} รายการ`}
       </p>
       {loading ? (
         <div className="history-grid" aria-label="กำลังโหลดประวัติ">
@@ -67,6 +71,12 @@ export function HistoryPage({
             </div>
           ))}
         </div>
+      ) : filter === 'saved' ? (
+        savedVideos.length ? <VideoGrid videos={savedVideos} /> : <section className="history-empty">
+          <h2>ยังไม่มีรายการดูภายหลัง</h2>
+          <p>กดปุ่มดูภายหลังในหน้ารายละเอียดหรือหน้ารับชม เพื่อบันทึกวิดีโอไว้ที่นี่</p>
+          <a href="#/videos" className="rp-softbutton rp-linkbutton">สำรวจวิดีโอ</a>
+        </section>
       ) : results.length ? (
         <div className="history-grid">
           {results.map((entry) => {
@@ -83,7 +93,7 @@ export function HistoryPage({
                   href={`#/videos/${entry.videoId}`}
                   aria-label={`ดูรายละเอียด ${entry.video.title}`}
                 >
-                  <span aria-hidden="true">พื้นที่ภาพปก</span>
+                  {entry.video.coverUrl ? <img src={entry.video.coverUrl} alt="" loading="lazy" /> : <span aria-hidden="true">พื้นที่ภาพปก</span>}
                 </a>
                 <div className="history-card-body">
                   <div className="history-card-meta">
@@ -146,8 +156,8 @@ export function HistoryPage({
       )}
       <p className="rp-demo-note">
         {apiAuthEnabled
-          ? 'ประวัติบันทึกแยกตามบัญชี ดูต่อได้หลังรีเฟรชหรือเข้าสู่ระบบจากอุปกรณ์อื่น'
-          : 'ประวัติจากเครื่องเล่นจำลองจะหายเมื่อรีเฟรช'}{' '}
+          ? 'ประวัติและดูภายหลังบันทึกแยกตามบัญชี ใช้ได้หลังรีเฟรชหรือเข้าสู่ระบบจากอุปกรณ์อื่น'
+          : 'ประวัติและดูภายหลังในโหมดจำลองจะหายเมื่อรีเฟรช'}{' '}
         · แสดงเฉพาะวิดีโอที่ยังเผยแพร่
       </p>
     </main>

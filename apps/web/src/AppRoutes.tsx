@@ -35,7 +35,7 @@ interface RouteProps {
     refresh: () => Promise<void>
     saveProfile: (profile: Profile, password: string, signal?: AbortSignal) => Promise<void>
     savePassword: (password: string, next: string, signal?: AbortSignal) => Promise<void>
-    authenticated: (user: ApiUser) => void
+    authenticated: (user: ApiUser, destination?: '/' | '/profile') => void
     activatePlan: (id: string) => void
   }
   catalog: {
@@ -175,10 +175,12 @@ export function AppRoutes({
           loading={loading}
           video={video}
           onActivate={onActivatePlan}
-          onRefresh={account.refresh}
+          user={account.user}
+          onConfirmed={onAuthenticated}
         />
       ) : (
         <WatchPage
+          userId={account.userId}
           key={`${video.id}-${accountKey}`}
           initialPosition={history.find((entry) => entry.videoId === video.id)?.position ?? 0}
           onProgress={onWatchProgress}
@@ -232,7 +234,7 @@ export function AppRoutes({
   else if (path === '/history')
     content =
       viewer !== 'guest' ? (
-        <HistoryPage history={history} videos={videos} loading={loading} />
+        <HistoryPage history={history} videos={videos} loading={loading} saved={saved} />
       ) : (
         <MessagePage
           title="เข้าสู่ระบบเพื่อดูประวัติ"
@@ -261,7 +263,8 @@ export function AppRoutes({
         activePlan={activePlan}
         loading={loading}
         onActivate={onActivatePlan}
-        onRefresh={account.refresh}
+        user={account.user}
+          onConfirmed={onAuthenticated}
       />
     )
   else if (path === '/profile' && viewer !== 'guest')
@@ -291,7 +294,7 @@ export function AppRoutes({
         initialEmail={previewAccount?.email ?? ''}
         onRegisterPreview={onRegisterPreview}
         onLoginPreview={onLoginPreview}
-        onAuthenticated={onAuthenticated}
+        onAuthenticated={user => onAuthenticated(user, '/')}
       />
     )
   else

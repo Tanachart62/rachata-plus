@@ -11,6 +11,7 @@ export function videoError(code: string) {
     video_not_ready_or_missing: 'วิดีโอยังแปลงไม่เสร็จ หรือถูกลบแล้ว',
     video_not_retryable: 'วิดีโอนี้ยังไม่พร้อมให้ลองแปลงใหม่',
     invalid_video_file: 'เลือกไฟล์ MP4, WebM หรือ MOV ที่ไม่ใช่ไฟล์ว่าง',
+    invalid_cover: 'เลือกภาพ JPEG หรือ PNG ไม่เกิน 5 MB ขนาดไม่เกิน 4096 พิกเซลต่อด้านและ 8 ล้านพิกเซล',
     invalid_metadata: 'กรุณาตรวจชื่อและหมวดหมู่วิดีโอ',
     storage_budget_exceeded: 'พื้นที่จัดเก็บไม่พอ กรุณาลบวิดีโอที่ไม่ใช้แล้วหรือติดต่อผู้ดูแล',
     upload_incomplete_or_too_large: 'อัปโหลดไม่ครบหรือไฟล์เกิน 100 MB กรุณาลองใหม่',
@@ -54,6 +55,7 @@ export function uploadVideo(
   category: string,
   progress: (percent: number) => void,
   signal: AbortSignal,
+  cover?: File | null,
 ): Promise<Video> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
@@ -81,6 +83,7 @@ export function uploadVideo(
     body.append('description', description)
     body.append('category', category)
     body.append('file', file)
+    if (cover) body.append('cover', cover)
     if (signal.aborted) {
       signal.removeEventListener('abort', abort)
       reject(new Error('ยกเลิกการส่งไฟล์แล้ว'))

@@ -11,6 +11,7 @@ export interface Video {
   processingStatus?: 'pending' | 'processing' | 'ready' | 'failed'
   processingError?: string
   playbackUrl?: string
+  coverUrl?: string
   previewUrl?: string
 }
 

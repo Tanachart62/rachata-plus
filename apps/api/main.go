@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -103,7 +104,15 @@ func run() error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	router := gin.Default()
+	router := gin.New()
+	// Playback permits are query parameters; never include them in access logs.
+	router.Use(gin.LoggerWithFormatter(func(p gin.LogFormatterParams) string {
+		return fmt.Sprintf("[HTTP] %s %q %d %s\n", p.Method, p.Request.URL.Path, p.StatusCode, p.Latency)
+	}), gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+		// Recovery's default request dump can contain cookies or permit URLs.
+		log.Printf("[HTTP] panic method=%s path=%q", c.Request.Method, c.Request.URL.Path)
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}))
 
 	proxies, err := trustedProxyCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
 	if err != nil {

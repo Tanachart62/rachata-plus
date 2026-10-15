@@ -26,12 +26,14 @@ import (
 )
 
 const maxVideoBytes int64 = 100 * 1024 * 1024
-const videoColumns = `id,title,description,category,duration_seconds,publication_status,status,processing_error`
+const videoColumns = `id,title,description,category,duration_seconds,publication_status,status,processing_error,has_cover`
 
 var storageKeyPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
-var mediaFilePattern = regexp.MustCompile(`^(index\.m3u8|segment_[0-9]{6}\.ts)$`)
+var mediaFilePattern = regexp.MustCompile(`^(index\.m3u8|[0-9]{1,4}p\.m3u8|segment_([0-9]{1,4}p_)?[0-9]{6}\.ts)$`)
 
 type videoRecord struct {
+	HasCover          bool   `json:"-"`
+	CoverURL          string `json:"coverUrl,omitempty"`
 	ID                int64  `json:"id"`
 	Title             string `json:"title"`
 	Description       string `json:"description"`
@@ -45,9 +47,12 @@ type videoRecord struct {
 }
 
 func (v *videoRecord) destinations() []any {
-	return []any{&v.ID, &v.Title, &v.Description, &v.Category, &v.DurationSeconds, &v.PublicationStatus, &v.ProcessingStatus, &v.ProcessingError}
+	return []any{&v.ID, &v.Title, &v.Description, &v.Category, &v.DurationSeconds, &v.PublicationStatus, &v.ProcessingStatus, &v.ProcessingError, &v.HasCover}
 }
 func (v *videoRecord) deliveryURLs() {
+	if v.HasCover {
+		v.CoverURL = fmt.Sprintf("/api/videos/%d/cover", v.ID)
+	}
 	if v.ProcessingStatus == "ready" {
 		v.PlaybackURL = fmt.Sprintf("/media/%d/full/index.m3u8", v.ID)
 		v.PreviewURL = fmt.Sprintf("/media/%d/preview/index.m3u8", v.ID)
@@ -131,6 +136,9 @@ func (s *videoService) user(c *gin.Context, required bool) (accountResponse, boo
 	}
 	return user, true
 }
+
+const videoAdminActorKey = "video_admin_actor_id"
+
 func (s *videoService) admin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, ok := s.user(c, true)
@@ -145,13 +153,36 @@ func (s *videoService) admin() gin.HandlerFunc {
 			c.AbortWithStatusJSON(403, gin.H{"error": "invalid_origin"})
 			return
 		}
+		c.Set(videoAdminActorKey, user.ID)
 		c.Header("Cache-Control", "no-store")
 		c.Next()
 	}
 }
+
+// Acquire authority only after request parsing. The user lock is shared with
+// suspension/session revocation, and remains held through the media write.
+func (s *videoService) beginAdminMutation(c *gin.Context, ctx context.Context) (pgx.Tx, bool) {
+	actor, exists := c.Get(videoAdminActorKey)
+	id, valid := actor.(int64)
+	if !exists || !valid || id <= 0 {
+		accountFailure(c, pgx.ErrNoRows)
+		return nil, false
+	}
+	tx, locked, ok := beginAccountMutation(c, s.db, ctx, id)
+	if !ok {
+		return nil, false
+	}
+	if locked.User.Role != "admin" {
+		rollback(tx)
+		c.JSON(403, gin.H{"error": "admin_required"})
+		return nil, false
+	}
+	return tx, true
+}
 func (s *videoService) routes(router *gin.Engine) {
 	router.GET("/api/videos", s.list(false))
 	router.GET("/api/videos/:id", s.detail)
+	router.GET("/api/videos/:id/cover", s.cover)
 	admin := router.Group("/api/admin")
 	admin.Use(s.admin())
 	admin.GET("/videos", s.list(true))
@@ -161,6 +192,8 @@ func (s *videoService) routes(router *gin.Engine) {
 	admin.POST("/videos/:id/retry", s.retry)
 	router.GET("/media/:id/:kind/:file", s.media)
 	router.HEAD("/media/:id/:kind/:file", s.media)
+	router.POST("/api/playback/:id", s.playback)
+	router.DELETE("/api/playback/:id", s.playback)
 }
 func videoID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -226,7 +259,7 @@ func (s *videoService) detail(c *gin.Context) {
 	c.JSON(200, gin.H{"video": v})
 }
 func (s *videoService) upload(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxVideoBytes+64*1024)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxVideoBytes+maxCoverBytes+64*1024)
 	reader, err := c.Request.MultipartReader()
 	if err != nil {
 		c.JSON(400, gin.H{"error": "multipart_required"})
@@ -264,6 +297,7 @@ func (s *videoService) upload(c *gin.Context) {
 	}()
 	fields := map[string]string{}
 	hasFile := false
+	hasCover := false
 	for {
 		part, readErr := reader.NextPart()
 		if errors.Is(readErr, io.EOF) {
@@ -302,6 +336,19 @@ func (s *videoService) upload(c *gin.Context) {
 				c.JSON(400, gin.H{"error": "invalid_video_file"})
 				return
 			}
+		} else if part.FormName() == "cover" && part.FileName() != "" {
+			if hasCover {
+				part.Close()
+				c.JSON(400, gin.H{"error": "invalid_cover"})
+				return
+			}
+			coverErr := saveCover(part, filepath.Join(dir, "cover.jpg"))
+			part.Close()
+			if coverErr != nil {
+				c.JSON(400, gin.H{"error": "invalid_cover"})
+				return
+			}
+			hasCover = true
 		} else {
 			name := part.FormName()
 			if name != "title" && name != "description" && name != "category" {
@@ -330,14 +377,24 @@ func (s *videoService) upload(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
+	tx, ok := s.beginAdminMutation(c, ctx)
+	if !ok {
+		return
+	}
+	defer rollback(tx)
 	var v videoRecord
-	err = v.scan(s.db.QueryRow(ctx, `INSERT INTO videos(title,description,category,storage_key) VALUES($1,$2,$3,$4) RETURNING `+videoColumns, title, description, category, key))
+	err = v.scan(tx.QueryRow(ctx, `INSERT INTO videos(title,description,category,storage_key,has_cover) VALUES($1,$2,$3,$4,$5) RETURNING `+videoColumns, title, description, category, key, hasCover))
+	if err == nil {
+		_, err = tx.Exec(ctx, `UPDATE media_reservations SET lease_until=NULL WHERE storage_key=$1`, key)
+	}
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
 	if err != nil {
 		c.JSON(503, gin.H{"error": "database_unavailable"})
 		return
 	}
 	keep = true
-	_, _ = s.db.Exec(ctx, `UPDATE media_reservations SET lease_until=NULL WHERE storage_key=$1`, key)
 	c.JSON(202, gin.H{"video": v})
 }
 func (s *videoService) publish(c *gin.Context) {
@@ -360,11 +417,19 @@ func (s *videoService) publish(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
+	tx, ok := s.beginAdminMutation(c, ctx)
+	if !ok {
+		return
+	}
+	defer rollback(tx)
 	var v videoRecord
-	err := v.scan(s.db.QueryRow(ctx, `UPDATE videos SET publication_status=$2,updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL AND ($2<>'published' OR status='ready') RETURNING `+videoColumns, id, req.Status))
+	err := v.scan(tx.QueryRow(ctx, `UPDATE videos SET publication_status=$2,updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL AND ($2<>'published' OR status='ready') RETURNING `+videoColumns, id, req.Status))
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(409, gin.H{"error": "video_not_ready_or_missing"})
 		return
+	}
+	if err == nil {
+		err = tx.Commit(ctx)
 	}
 	if err != nil {
 		c.JSON(503, gin.H{"error": "database_unavailable"})
@@ -379,13 +444,22 @@ func (s *videoService) remove(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
-	tag, err := s.db.Exec(ctx, `UPDATE videos SET deleted_at=NOW(),publication_status='hidden',updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, id)
+	tx, ok := s.beginAdminMutation(c, ctx)
+	if !ok {
+		return
+	}
+	defer rollback(tx)
+	tag, err := tx.Exec(ctx, `UPDATE videos SET deleted_at=NOW(),publication_status='hidden',updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`, id)
 	if err != nil {
 		c.JSON(503, gin.H{"error": "database_unavailable"})
 		return
 	}
 	if tag.RowsAffected() == 0 {
 		c.JSON(404, gin.H{"error": "video_not_found"})
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		accountFailure(c, err)
 		return
 	}
 	s.mu.Lock()
@@ -402,13 +476,22 @@ func (s *videoService) retry(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
-	tag, err := s.db.Exec(ctx, `UPDATE videos SET status='pending',processing_error='',updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL AND status='failed' AND storage_key IS NOT NULL`, id)
+	tx, ok := s.beginAdminMutation(c, ctx)
+	if !ok {
+		return
+	}
+	defer rollback(tx)
+	tag, err := tx.Exec(ctx, `UPDATE videos SET status='pending',processing_error='',updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL AND status IN ('failed','ready') AND storage_key IS NOT NULL`, id)
 	if err != nil {
 		c.JSON(503, gin.H{"error": "database_unavailable"})
 		return
 	}
 	if tag.RowsAffected() == 0 {
 		c.JSON(409, gin.H{"error": "video_not_retryable"})
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		accountFailure(c, err)
 		return
 	}
 	c.Status(202)
@@ -434,7 +517,8 @@ func (s *videoService) media(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 	defer cancel()
 	var key string
-	err := s.db.QueryRow(ctx, `SELECT storage_key FROM videos WHERE id=$1 AND deleted_at IS NULL AND status='ready' AND ($2 OR publication_status='published')`, id, user.Role == "admin").Scan(&key)
+	var generation int64
+	err := s.db.QueryRow(ctx, `SELECT storage_key,hls_generation FROM videos WHERE id=$1 AND storage_key IS NOT NULL AND deleted_at IS NULL AND status='ready' AND ($2 OR publication_status='published')`, id, user.Role == "admin").Scan(&key, &generation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		c.Status(404)
 		return
@@ -447,13 +531,46 @@ func (s *videoService) media(c *gin.Context) {
 		c.Status(404)
 		return
 	}
+	maxHeight := 2160
+	if kind == "full" {
+		maxHeight = limitsFor(user).Height
+		if maxHeight == 0 {
+			c.JSON(403, gin.H{"error": "membership_required"})
+			return
+		}
+		if !s.authorizePlayback(c, ctx, user, id, generation) {
+			return
+		}
+		if mediaHeight(name) > maxHeight {
+			c.JSON(403, gin.H{"error": "quality_not_allowed"})
+			return
+		}
+	}
+	directory := hlsDirectory(key, generation)
 	root, err := os.OpenRoot(s.root)
 	if err != nil {
 		c.Status(503)
 		return
 	}
 	defer root.Close()
-	file, err := root.Open(filepath.Join(key, kind, name))
+	if kind == "full" && name != "index.m3u8" {
+		master, openErr := root.Open(filepath.Join(directory, kind, "index.m3u8"))
+		if openErr != nil {
+			c.Status(404)
+			return
+		}
+		data, readErr := io.ReadAll(io.LimitReader(master, (1<<20)+1))
+		master.Close()
+		if readErr != nil || len(data) > 1<<20 {
+			c.Status(503)
+			return
+		}
+		if !renditionAllowed(data, name, maxHeight) {
+			c.JSON(403, gin.H{"error": "quality_not_allowed"})
+			return
+		}
+	}
+	file, err := root.Open(filepath.Join(directory, kind, name))
 	if err != nil {
 		c.Status(404)
 		return
@@ -468,13 +585,18 @@ func (s *videoService) media(c *gin.Context) {
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Cross-Origin-Resource-Policy", "same-origin")
 	if strings.HasSuffix(name, ".m3u8") {
-		c.Header("Content-Type", "application/vnd.apple.mpegurl")
+		token := ""
+		if kind == "full" {
+			token = c.Query("playback")
+		}
+		servePlaylist(c, file, maxHeight, token)
+		return
 	} else {
 		c.Header("Content-Type", "video/mp2t")
 	}
 	if s.nginxDelivery {
 		// Only validated, authorized paths reach Nginx's internal-only location.
-		c.Header("X-Accel-Redirect", "/_hls/"+key+"/"+kind+"/"+name)
+		c.Header("X-Accel-Redirect", "/_hls/"+directory+"/"+kind+"/"+name)
 		c.Status(200)
 		return
 	}

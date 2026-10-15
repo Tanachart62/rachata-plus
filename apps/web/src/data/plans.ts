@@ -1,6 +1,6 @@
 import type { MembershipPlan } from '../components/PlanCard'
 
-// Display prices and streaming examples; no real billing or API-enforced limits.
+// The API enforces these limits for full-video playback.
 export const membershipPlans: MembershipPlan[] = [
   {
     id: 'free', name: 'Free', subtitle: 'เริ่มต้นสำรวจเรื่องราว',
@@ -13,27 +13,27 @@ export const membershipPlans: MembershipPlan[] = [
     ],
   },
   {
-    id: 'basic', name: 'Basic', subtitle: 'สำหรับการรับชมคนเดียว',
+    id: 'basic', name: 'Basic', subtitle: 'รับชมตามคุณภาพต้นฉบับ',
     price: '219 THB', priceNote: 'ไม่มีการเรียกเก็บเงินในเดโม่นี้', free: false,
     features: [
-      { label: 'คุณภาพวิดีโอตัวอย่าง', value: '720p · HD' },
-      { label: 'รับชมพร้อมกัน (ตัวอย่าง)', value: '1 อุปกรณ์' },
+      { label: 'คุณภาพวิดีโอเต็ม', value: '1080p · Full HD' },
+      { label: 'การรับชมพร้อมกัน', value: '2 จอพร้อมกัน' },
     ],
   },
   {
-    id: 'standard', name: 'Standard', subtitle: 'คมชัดขึ้นกับเรื่องที่ชอบ',
+    id: 'standard', name: 'Standard', subtitle: 'รับชมตามคุณภาพต้นฉบับ',
     price: '419 THB', priceNote: 'ไม่มีการเรียกเก็บเงินในเดโม่นี้', free: false,
     features: [
-      { label: 'คุณภาพวิดีโอตัวอย่าง', value: '1080p · Full HD' },
-      { label: 'รับชมพร้อมกัน (ตัวอย่าง)', value: '2 อุปกรณ์' },
+      { label: 'คุณภาพวิดีโอเต็ม', value: '1440p · 2K' },
+      { label: 'การรับชมพร้อมกัน', value: '2 จอพร้อมกัน' },
     ],
   },
   {
-    id: 'premium', name: 'Premium', subtitle: 'ครบทุกประสบการณ์รับชม',
+    id: 'premium', name: 'Premium', subtitle: 'รับชมตามคุณภาพต้นฉบับ',
     price: '789 THB', priceNote: 'ไม่มีการเรียกเก็บเงินในเดโม่นี้', free: false,
     features: [
-      { label: 'คุณภาพวิดีโอตัวอย่าง', value: '4K · Ultra HD' },
-      { label: 'รับชมพร้อมกัน (ตัวอย่าง)', value: '4 อุปกรณ์' },
+      { label: 'คุณภาพวิดีโอเต็ม', value: '4K · Ultra HD' },
+      { label: 'การรับชมพร้อมกัน', value: '4 จอพร้อมกัน' },
     ],
   },
 ]

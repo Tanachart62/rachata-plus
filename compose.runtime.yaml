@@ -8,8 +8,8 @@ x-app-env: &app-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   DB_SSLMODE: disable
   HTTP_ADDR: "0.0.0.0:8080"
-  AUTH_ORIGIN: "http://127.0.0.1:${WEB_PORT:-8088}"
-  COOKIE_SECURE: "false"
+  AUTH_ORIGIN: "${SHARE_AUTH_ORIGIN:-http://127.0.0.1:${WEB_PORT:-8088}}"
+  COOKIE_SECURE: "${SHARE_COOKIE_SECURE:-false}"
   LOCAL_VIDEO_ENABLED: "true"
   VIDEO_WORKER_MODE: external
   MEDIA_DELIVERY: nginx
@@ -57,6 +57,10 @@ services:
       - ./db/migrations/add_membership_management.sql:/docker-entrypoint-initdb.d/007-membership.sql:ro
       - ./db/migrations/add_account_controls.sql:/docker-entrypoint-initdb.d/008-account-controls.sql:ro
       - ./db/migrations/add_session_devices.sql:/docker-entrypoint-initdb.d/009-session-devices.sql:ro
+      - ./db/migrations/add_video_covers.sql:/docker-entrypoint-initdb.d/010-video-covers.sql:ro
+      - ./db/migrations/allow_video_reprocessing.sql:/docker-entrypoint-initdb.d/011-reprocessing.sql:ro
+      - ./db/migrations/add_profile_avatars.sql:/docker-entrypoint-initdb.d/012-avatars.sql:ro
+      - ./db/migrations/add_playback_leases_and_generations.sql:/docker-entrypoint-initdb.d/013-playback.sql:ro
     logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
   storage-init:
     image: rachata-plus-api:local

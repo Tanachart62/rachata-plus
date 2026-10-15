@@ -59,7 +59,8 @@ func newAuthConfig(origin, secureValue string) (*authConfig, error) {
 	return &authConfig{origin: origin, secure: secureValue == "true", dummyHash: dummy, attempts: make(map[string]attemptWindow), slots: make(chan struct{}, 2)}, nil
 }
 
-// Same-origin JSON writes plus SameSite cookies protect against browser CSRF.
+// Same-origin writes plus SameSite cookies protect against browser CSRF.
+// Multipart is accepted only by the profile avatar upload endpoint.
 // A bounded local limiter also limits expensive password hashing requests.
 func (a *authConfig) protectWrites() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -73,7 +74,8 @@ func (a *authConfig) protectWrites() gin.HandlerFunc {
 			return
 		}
 		mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
-		if err != nil || mediaType != "application/json" {
+		avatarUpload := c.Request.Method == http.MethodPost && c.Request.URL.Path == "/auth/avatar" && mediaType == "multipart/form-data"
+		if err != nil || (mediaType != "application/json" && !avatarUpload) {
 			c.AbortWithStatusJSON(http.StatusUnsupportedMediaType, gin.H{"error": "json_required"})
 			return
 		}
@@ -274,16 +276,20 @@ func (a *authConfig) logoutHandler(db *pgxpool.Pool) gin.HandlerFunc {
 		defer cancel()
 		hash, ok := sessionHash(c)
 		if ok {
-			u, err := readSessionUser(ctx, db, hash)
+			// Serialize revocation with account/library/admin mutations. Keep
+			// logout idempotent when the session has already been revoked.
+			tx, _, err := lockedAccount(ctx, db, hash, req.ExpectedUserID)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				accountFailure(c, err)
 				return
 			}
 			if err == nil {
-				if !checkOwner(c, u, req.ExpectedUserID) {
-					return
+				defer rollback(tx)
+				_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, hash)
+				if err == nil {
+					err = tx.Commit(ctx)
 				}
-				if _, err = db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, hash); err != nil {
+				if err != nil {
 					accountFailure(c, err)
 					return
 				}

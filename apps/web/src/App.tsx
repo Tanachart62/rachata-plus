@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppRoutes } from './AppRoutes'
 import { SearchBar } from './components/SearchBar'
+import { AccountAvatar } from './components/ProfileAvatar'
 import { apiAuthEnabled } from './lib/auth'
 import { useSession } from './hooks/useSession'
 import { useVideoCatalog } from './hooks/useVideoCatalog'
@@ -107,7 +108,7 @@ export default function App() {
     setActivePlan('free')
     setDemoSaved(new Set())
     setDemoHistory([])
-    window.location.hash = '/profile'
+    window.location.hash = '/'
   }
   const logout = () => {
     if (apiAuthEnabled) {
@@ -122,13 +123,11 @@ export default function App() {
     window.location.hash = '/login'
   }
   const activatePlan = (id: string) => {
-    if (apiAuthEnabled) {
-      session.setNotice('แจ้งแอดมินเพื่อเปิดแพ็กเกจสมาชิก ไม่มีการเรียกเก็บเงินผ่านเว็บไซต์')
-      return
-    }
-    if (viewer === 'guest' || !membershipPlans.some((p) => p.id === id && !p.free)) return
+    if (apiAuthEnabled) return
+    if (viewer === 'guest' || viewer === 'admin' || !membershipPlans.some((p) => p.id === id && !p.free) ||
+      membershipPlans.findIndex(p => p.id === id) <= membershipPlans.findIndex(p => p.id === activePlan)) return
     setActivePlan(id)
-    setDemoViewer(viewer === 'admin' ? 'admin' : 'member')
+    setDemoViewer('member')
     if (!/^\/watch\/\d+$/.test(path)) window.location.hash = '/profile'
   }
   const adminPage = path.startsWith('/admin/')
@@ -196,14 +195,14 @@ export default function App() {
                 aria-label="โปรไฟล์"
                 aria-current={path === '/profile' ? 'page' : undefined}
               >
-                <span className="rp-accountdot">RP</span>โปรไฟล์
+                <AccountAvatar key={accountKey} userId={session.user?.id ?? 0} />โปรไฟล์
               </a>
               <a
                 className="rp-history-link"
                 href="#/history"
                 aria-current={path === '/history' ? 'page' : undefined}
               >
-                ประวัติ
+                ประวัติ / ดูภายหลัง
               </a>
               <button
                 type="button"
@@ -218,17 +217,6 @@ export default function App() {
         </div>
       </header>
       <div id="content" tabIndex={-1}>
-        <p className={session.notice ? 'rp-demo-note' : 'rp-sr'} role="status">
-          {session.notice}
-        </p>
-        {catalog.error && (
-          <div role="alert">
-            <p>{catalog.error}</p>
-            <button className="rp-softbutton" onClick={catalog.retry}>
-              ลองโหลดวิดีโอใหม่
-            </button>
-          </div>
-        )}
         {apiAuthEnabled && library.error && (
           <div role="alert">
             <p>{library.error}</p>
@@ -274,7 +262,7 @@ export default function App() {
             retryMonitoring: () => setMonitoringError(false),
           }}
         />
-        {apiAuthEnabled && path === '/profile' && library.cursors.savedNext && (
+        {apiAuthEnabled && ['/profile', '/history'].includes(path) && library.cursors.savedNext && (
           <button
             className="rp-softbutton"
             disabled={library.paging}

@@ -25,7 +25,7 @@ export function VideoGrid({ videos, loading = false }: { videos: Video[]; loadin
   return <div className="rp-grid">{videos.map(video => loading
     ? <div className="rp-sk-card" key={video.id}><Skeleton shape="cover" /><Skeleton shape="cardtitle" /><Skeleton shape="cardsub" /></div>
     : <a className="rp-video" key={video.id} href={`#/videos/${video.id}`} aria-label={`ดูรายละเอียด ${video.title}`}>
-        <span className="rp-cover" aria-hidden="true">พื้นที่ภาพปก<span className="rp-duration">—:—</span></span>
+        <span className="rp-cover" aria-hidden="true">{video.coverUrl ? <img src={video.coverUrl} alt="" loading="lazy" /> : "พื้นที่ภาพปก"}<span className="rp-duration">—:—</span></span>
         <span className="rp-cardtitle">{video.title}</span><span className="rp-cardsub">{video.category} · สำหรับสมาชิก</span>
       </a>)}</div>
 }

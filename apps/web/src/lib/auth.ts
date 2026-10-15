@@ -115,7 +115,11 @@ export function accountError(error: unknown) {
     cannot_suspend_self: 'ไม่สามารถระงับบัญชีแอดมินที่กำลังใช้งานอยู่',
     admin_required: 'บัญชีนี้ไม่มีสิทธิ์จัดการสมาชิก',
     user_not_found: 'ไม่พบบัญชีที่ใช้อีเมลนี้',
-    membership_conflict: 'สิทธิ์ถูกแก้ไขแล้ว กรุณาค้นหาบัญชีใหม่ก่อนบันทึก',
+    membership_conflict: 'สิทธิ์ถูกแก้ไขแล้ว กรุณาโหลดหน้าใหม่ก่อนยืนยัน',
+    upgrade_only: 'เลือกได้เฉพาะแพ็กเกจที่สูงกว่าสิทธิ์ปัจจุบัน',
+    invalid_avatar: 'รูปไม่ถูกต้อง ใช้ JPEG หรือ PNG ไม่เกิน 2 MB ขนาดไม่เกิน 4096 px ต่อด้าน และ 8 ล้านพิกเซล',
+    demo_checkout_disabled: 'การชำระเงินจำลองใช้ได้เฉพาะระบบทดสอบในเครื่อง',
+    admin_membership_not_needed: 'ผู้ดูแลระบบมีสิทธิ์รับชมอยู่แล้ว',
     membership_too_long: 'วันหมดอายุรวมต้องไม่เกิน 730 วันนับจากวันนี้',
     too_many_requests: 'ส่งคำขอถี่เกินไป กรุณารอสักครู่แล้วลองใหม่',
     invalid_request: 'กรุณาตรวจข้อมูลที่กรอก',
@@ -141,6 +145,13 @@ export async function updateAccount(
   )
   if (u.id !== expectedUserId) throw new ApiError('account_changed')
   return u
+}
+export async function checkoutDemoPlan(user: ApiUser, plan: string, signal?: AbortSignal) {
+  const next = readUser(await jsonRequest('/auth/membership/demo-checkout', {
+    body: { expectedUserId: user.id, expectedRevision: user.membershipRevision, plan }, signal,
+  }))
+  if (next.id !== user.id) throw new ApiError('account_changed')
+  return next
 }
 export async function changeAccountPassword(
   expectedUserId: number,

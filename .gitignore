@@ -39,6 +39,7 @@ __debug_bin*
 /backup/
 *.dump
 *.backup
+*.bak
 *.sql.gz
 *.sql.zip
 
@@ -50,6 +51,8 @@ yarn-error.log*
 pnpm-debug.log*
 *.pid
 *.pid.lock
+*.tmp
+*.temp
 .tmp/
 tmp/
 coverage/
@@ -57,10 +60,20 @@ playwright-report/
 playwright/.cache/
 test-results/
 
+# Generated diagrams and local architecture previews
+/.archify/
+
+# Local infrastructure state and generated deployment bundles
+.terraform/
+*.tfstate
+*.tfstate.*
+cdk.out/
+
 # OS and local editor settings
 .DS_Store
 Thumbs.db
 Desktop.ini
+ehthumbs.db
 .vscode/
 .idea/
 *.swp

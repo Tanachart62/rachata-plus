@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -61,7 +63,7 @@ func TestLocalVideoPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, name := range []string{"create_videos.sql", "create_users_and_subscriptions.sql", "add_usernames_and_sessions.sql", "add_local_video_pipeline.sql", "add_account_library.sql", "add_account_consistency.sql", "add_membership_management.sql", "add_account_controls.sql", "add_session_devices.sql"} {
+	for _, name := range []string{"create_videos.sql", "create_users_and_subscriptions.sql", "add_usernames_and_sessions.sql", "add_local_video_pipeline.sql", "add_account_library.sql", "add_account_consistency.sql", "add_membership_management.sql", "add_account_controls.sql", "add_session_devices.sql", "add_video_covers.sql", "allow_video_reprocessing.sql", "add_profile_avatars.sql", "add_playback_leases_and_generations.sql"} {
 		sql, err := os.ReadFile("../../db/migrations/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -114,8 +116,12 @@ func TestLocalVideoPipeline(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	s.routes(router)
+	permits := map[string]string{}
 	request := func(method, path, body, role string, want int) *httptest.ResponseRecorder {
 		t.Helper()
+		if strings.Contains(path, "/full/") && permits[role] != "" {
+			path += "?playback=" + permits[role]
+		}
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Origin", a.origin)
 		req.Header.Set("Content-Type", "application/json")
@@ -133,7 +139,7 @@ func TestLocalVideoPipeline(t *testing.T) {
 	request("GET", "/api/admin/videos", "", "free", 403)
 	file := filepath.Join(t.TempDir(), "fixture.mp4")
 	fixtureCtx, stop := context.WithTimeout(ctx, 20*time.Second)
-	output, err := exec.CommandContext(fixtureCtx, worker.ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=green:s=320x180:r=24", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "24", "-c:v", "libx264", "-threads", "2", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", file).CombinedOutput()
+	output, err := exec.CommandContext(fixtureCtx, worker.ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=green:s=1280x720:r=24", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "24", "-c:v", "libx264", "-threads", "2", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", file).CombinedOutput()
 	stop()
 	if err != nil {
 		t.Fatalf("generate fixture: %v %s", err, output)
@@ -172,7 +178,7 @@ func TestLocalVideoPipeline(t *testing.T) {
 		t.Fatal("quota failure must preserve source", err)
 	}
 	limited.releaseMedia(budgetKey)
-	upload := func(data []byte, filename, role string, want int) int64 {
+	upload := func(data []byte, filename, role string, want int, coverData ...[]byte) int64 {
 		t.Helper()
 		body := &bytes.Buffer{}
 		writer := multipart.NewWriter(body)
@@ -181,6 +187,14 @@ func TestLocalVideoPipeline(t *testing.T) {
 		writer.WriteField("description", "Generated test video")
 		part, _ := writer.CreateFormFile("file", filename)
 		part.Write(data)
+		if len(coverData) == 0 || coverData[0] != nil {
+			coverPart, _ := writer.CreateFormFile("cover", "../../cover.png")
+			if len(coverData) == 0 {
+				png.Encode(coverPart, image.NewRGBA(image.Rect(0, 0, 32, 18)))
+			} else {
+				coverPart.Write(coverData[0])
+			}
+		}
 		writer.Close()
 		req := httptest.NewRequest("POST", "/api/admin/videos", body)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
@@ -206,7 +220,14 @@ func TestLocalVideoPipeline(t *testing.T) {
 	}
 	upload(fixture, "test.mp4", "free", 403)
 	upload(fixture, "test.exe", "admin", 400)
+	upload(fixture, "test.mp4", "admin", 400, []byte("<svg>not a raster image</svg>"))
 	id := upload(fixture, "../../fixture.mp4", "admin", 202)
+	coverURL := fmt.Sprintf("/api/videos/%d/cover", id)
+	request("GET", coverURL, "", "", 404)
+	coverResponse := request("GET", coverURL, "", "admin", 200)
+	if coverResponse.Header().Get("Content-Type") != "image/jpeg" {
+		t.Fatal("cover format not normalized")
+	}
 	base := fmt.Sprintf("/api/admin/videos/%d", id)
 	request("PATCH", base, `{"publicationStatus":"published"}`, "admin", 409)
 	// Recover a job left in processing by a previous interrupted worker.
@@ -234,6 +255,59 @@ func TestLocalVideoPipeline(t *testing.T) {
 		}
 		t.Fatal("timed out waiting for " + status)
 	}
+	t.Run("worker-connection-loss", func(t *testing.T) {
+		var key string
+		if err := db.QueryRow(ctx, `SELECT storage_key FROM videos WHERE id=$1`, id).Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		started := false
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(filepath.Join(s.root, key, "jobs", "g1")); err == nil {
+				started = true
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !started {
+			t.Fatal("worker did not start its first generation")
+		}
+		var pid uint32
+		if err := db.QueryRow(ctx, `SELECT pid FROM pg_locks WHERE locktype='advisory' AND classid=0 AND objid=724286001 AND granted`).Scan(&pid); err != nil {
+			t.Fatal(err)
+		}
+		var terminated bool
+		if err := db.QueryRow(ctx, `SELECT pg_terminate_backend($1)`, pid).Scan(&terminated); err != nil || !terminated {
+			t.Fatal("cannot terminate worker connection", err)
+		}
+		finished := make(chan struct{})
+		go func() { wg.Wait(); close(finished) }()
+		select {
+		case <-finished:
+		case <-time.After(10 * time.Second):
+			t.Fatal("worker failed to stop after ownership loss")
+		}
+		if worker.leaseActive.Load() {
+			t.Fatal("lost worker still reports ownership")
+		}
+		next, err := newVideoService(db, nil, s.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = next.initTranscoder(2); err != nil {
+			t.Fatal(err)
+		}
+		wg.Add(1)
+		go func() { defer wg.Done(); next.workQueue(workerCtx) }()
+		await(id, "ready")
+		var generation int64
+		if err = db.QueryRow(ctx, `SELECT hls_generation FROM videos WHERE id=$1`, id).Scan(&generation); err != nil || generation != 2 {
+			t.Fatal("successor did not publish generation 2", generation, err)
+		}
+	})
+	if t.Failed() {
+		return
+	}
 	await(id, "ready")
 	full := fmt.Sprintf("/media/%d/full/index.m3u8", id)
 	preview := fmt.Sprintf("/media/%d/preview/index.m3u8", id)
@@ -241,14 +315,32 @@ func TestLocalVideoPipeline(t *testing.T) {
 	request("GET", full, "", "", 401)
 	request("GET", full, "", "free", 403)
 	request("GET", full, "", "member", 404)
+	var adminID, memberID int64
+	if err = db.QueryRow(ctx, `SELECT id FROM users WHERE username='admin'`).Scan(&adminID); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(ctx, `SELECT id FROM users WHERE username='member'`).Scan(&memberID); err != nil {
+		t.Fatal(err)
+	}
+	acquire := func(role string, user int64) {
+		w := request("POST", fmt.Sprintf("/api/playback/%d", id), fmt.Sprintf(`{"expectedUserId":%d}`, user), role, 200)
+		var response struct{ Token string }
+		if err = json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		permits[role] = response.Token
+	}
+	acquire("admin", adminID)
 	request("GET", full, "", "admin", 200)
 	request("PATCH", base, `{"publicationStatus":"published"}`, "admin", 200)
+	request("GET", coverURL, "", "", 200)
+	acquire("member", memberID)
 	w := request("GET", full, "", "member", 200)
-	if !strings.Contains(w.Body.String(), "#EXT-X-ENDLIST") {
+	if strings.Count(w.Body.String(), "#EXT-X-STREAM-INF:") != 3 {
 		t.Fatal("invalid HLS output")
 	}
 	s.nginxDelivery = true
-	redirect := request("GET", full, "", "member", 200)
+	redirect := request("GET", fmt.Sprintf("/media/%d/full/segment_360p_000000.ts", id), "", "member", 200)
 	if !strings.HasPrefix(redirect.Header().Get("X-Accel-Redirect"), "/_hls/") || redirect.Body.Len() != 0 {
 		t.Fatal("Nginx delivery must authorize then redirect without sending media bytes")
 	}
@@ -267,10 +359,22 @@ func TestLocalVideoPipeline(t *testing.T) {
 	if strings.Contains(p.Body.String(), "full/") {
 		t.Fatal("preview exposes full asset")
 	}
-	if !strings.Contains(p.Body.String(), "#EXT-X-ENDLIST") {
+	if strings.Count(p.Body.String(), "#EXT-X-STREAM-INF:") != 3 {
 		t.Fatal("invalid preview")
 	}
-	segment := fmt.Sprintf("/media/%d/full/segment_000000.ts", id)
+	for _, height := range []int{360, 480, 720} {
+		variant := fmt.Sprintf("/media/%d/full/%dp.m3u8", id, height)
+		request("GET", variant, "", "", 401)
+		request("GET", variant, "", "free", 403)
+		list := request("GET", variant, "", "member", 200)
+		if !strings.Contains(list.Body.String(), "#EXT-X-ENDLIST") {
+			t.Fatal("variant incomplete")
+		}
+		part := fmt.Sprintf("/media/%d/full/segment_%dp_000000.ts", id, height)
+		request("GET", part, "", "member", 200)
+		request("GET", fmt.Sprintf("/media/%d/preview/%dp.m3u8", id, height), "", "", 200)
+	}
+	segment := fmt.Sprintf("/media/%d/full/segment_360p_000000.ts", id)
 	request("GET", segment, "", "", 401)
 	request("GET", segment, "", "free", 403)
 	request("GET", segment, "", "member", 200)
@@ -296,7 +400,7 @@ func TestLocalVideoPipeline(t *testing.T) {
 	}
 
 	request("GET", fmt.Sprintf("/media/%d/full/source", id), "", "admin", 404)
-	req := httptest.NewRequest("GET", segment, nil)
+	req := httptest.NewRequest("GET", segment+"?playback="+permits["member"], nil)
 	req.AddCookie(cookies["member"])
 	req.Header.Set("Range", "bytes=0-31")
 	r := httptest.NewRecorder()
@@ -308,6 +412,20 @@ func TestLocalVideoPipeline(t *testing.T) {
 	if !strings.Contains(list.Body.String(), "HLS test") {
 		t.Fatal("published video missing")
 	}
+	// Published videos may re-enter processing without losing publication intent.
+	request("POST", base+"/retry", "{}", "admin", 202)
+	request("GET", full, "", "member", 404)
+	request("GET", preview, "", "", 404)
+	request("POST", base+"/retry", "{}", "admin", 409)
+	await(id, "ready")
+	var publication string
+	if err := db.QueryRow(ctx, `SELECT publication_status FROM videos WHERE id=$1`, id).Scan(&publication); err != nil || publication != "published" {
+		t.Fatal("reprocessing lost publication status", err)
+	}
+	request("GET", full, "", "member", 409) // Old generation's permit cannot read reprocessed media.
+	request("DELETE", fmt.Sprintf("/api/playback/%d", id), fmt.Sprintf(`{"expectedUserId":%d,"token":%q}`, memberID, permits["member"]), "member", 204)
+	acquire("member", memberID)
+	request("GET", full, "", "member", 200)
 	request("PATCH", base, `{"publicationStatus":"hidden"}`, "admin", 200)
 	request("GET", segment, "", "member", 404)
 	request("GET", preview, "", "", 404)

@@ -78,6 +78,63 @@ func testMembershipManagement(t *testing.T, ctx context.Context, db *pgxpool.Poo
 		}
 		return d.User
 	}
+	t.Run("demo checkout upgrade only", func(t *testing.T) {
+		t.Setenv("APP_ENV", "local")
+		id, cookie := create("checkoutuser", "user")
+		checkout := "/auth/membership/demo-checkout"
+		body := func(plan string, revision int64) string {
+			return fmt.Sprintf(`{"expectedUserId":%d,"plan":%q,"expectedRevision":%d}`, id, plan, revision)
+		}
+		check("POST", checkout, body("basic", 0), nil, 401)
+		check("POST", checkout, body("free", 0), cookie, 400)
+		check("POST", checkout, body("basic", 0), adminCookie, 409)
+		adminBody := fmt.Sprintf(`{"expectedUserId":%d,"plan":"basic","expectedRevision":0}`, actor)
+		check("POST", checkout, adminBody, adminCookie, 403)
+		check("POST", checkout, strings.Replace(body("basic", 0), fmt.Sprintf(`"expectedUserId":%d`, id), fmt.Sprintf(`"expectedUserId":%d`, target), 1), cookie, 409)
+		// Two simultaneous confirmations cannot extend or create duplicate grants.
+		results := make(chan *httptest.ResponseRecorder, 2)
+		for range 2 {
+			go func() { results <- perform("POST", checkout, body("basic", 0), cookie) }()
+		}
+		first, second := <-results, <-results
+		if first.Code != 200 {
+			first, second = second, first
+		}
+		if first.Code != 200 || second.Code != 409 {
+			t.Fatalf("duplicate checkout: %d %d", first.Code, second.Code)
+		}
+		basic := read(first)
+		if basic.Plan != "basic" || !basic.Member || basic.ExpiresAt < time.Now().Add(29*24*time.Hour).UnixMilli() {
+			t.Fatal("missing 30-day membership")
+		}
+		check("POST", checkout, body("basic", basic.MembershipRevision), cookie, 409)
+		standard := read(check("POST", checkout, body("standard", basic.MembershipRevision), cookie, 200))
+		premium := read(check("POST", checkout, body("premium", standard.MembershipRevision), cookie, 200))
+		if premium.Plan != "premium" || premium.ExpiresAt != basic.ExpiresAt {
+			t.Fatal("upgrade changed expiry")
+		}
+		check("POST", checkout, body("standard", premium.MembershipRevision), cookie, 409)
+		check("POST", checkout, body("basic", premium.MembershipRevision), cookie, 409)
+		var events int
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM membership_events WHERE user_id=$1`, id).Scan(&events); err != nil || events != 3 {
+			t.Fatal("checkout audit", events, err)
+		}
+		// Expired Premium is free and may start a fresh Basic membership.
+		if _, err := db.Exec(ctx, `UPDATE subscriptions SET expires_at=NOW()-interval '1 second', starts_at=NOW()-interval '31 days' WHERE user_id=$1`, id); err != nil {
+			t.Fatal(err)
+		}
+		fresh := read(check("POST", checkout, body("basic", premium.MembershipRevision), cookie, 200))
+		if fresh.Plan != "basic" || fresh.ExpiresAt <= premium.ExpiresAt {
+			t.Fatal("expired account did not start new term")
+		}
+		t.Setenv("APP_ENV", "production")
+		check("POST", checkout, body("premium", fresh.MembershipRevision), cookie, 403)
+		t.Setenv("APP_ENV", "local")
+		if _, err := db.Exec(ctx, `UPDATE users SET account_status='suspended' WHERE id=$1`, id); err != nil {
+			t.Fatal(err)
+		}
+		check("POST", checkout, body("premium", fresh.MembershipRevision), cookie, 401)
+	})
 	listPath := "/auth/admin/memberships/accounts"
 	check("GET", listPath, "", nil, 401)
 	check("GET", listPath, "", userCookie, 403)

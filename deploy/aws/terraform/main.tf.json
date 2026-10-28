@@ -53,7 +53,8 @@
     "azs": "${slice(data.aws_availability_zones.available.names, 0, 2)}",
     "ami": "${var.ami_id != \"\" ? var.ami_id : nonsensitive(data.aws_ssm_parameter.ami[0].value)}",
     "origin": "${var.http_demo ? \"http://${aws_lb.main.dns_name}\" : \"https://${var.hostname}\"}",
-    "user_data_common": "${replace(replace(replace(replace(replace(replace(replace(replace(file(\"${path.module}/../user-data-github.sh\"), \"REPLACE_FULL_40_CHARACTER_COMMIT\", var.git_commit), \"REPLACE_SECRET_ARN\", aws_secretsmanager_secret.database.arn), \"REPLACE_RDS_ENDPOINT\", aws_db_instance.main.address), \"REPLACE_MEDIA_BUCKET\", data.aws_s3_bucket.media.id), \"https://REPLACE_HOSTNAME\", local.origin), \"us-east-1\", var.region), \"/rachata-plus/application\", aws_cloudwatch_log_group.application.name), \"HTTP_DEMO='false'\", var.http_demo ? \"HTTP_DEMO='true'\" : \"HTTP_DEMO='false'\")}"
+    "user_data_common": "${replace(replace(replace(replace(replace(replace(replace(replace(file(\"${path.module}/../user-data-github.sh\"), \"REPLACE_FULL_40_CHARACTER_COMMIT\", var.git_commit), \"REPLACE_SECRET_ARN\", aws_secretsmanager_secret.database.arn), \"REPLACE_RDS_ENDPOINT\", aws_db_instance.main.address), \"REPLACE_MEDIA_BUCKET\", data.aws_s3_bucket.media.id), \"https://REPLACE_HOSTNAME\", local.origin), \"us-east-1\", var.region), \"/rachata-plus/application\", aws_cloudwatch_log_group.application.name), \"HTTP_DEMO='false'\", var.http_demo ? \"HTTP_DEMO='true'\" : \"HTTP_DEMO='false'\")}",
+    "web_git_commit": "${var.web_git_commit != \"\" ? var.web_git_commit : var.git_commit}"
   },
   "resource": {
     "random_password": {
@@ -671,7 +672,7 @@
             ]
           }
         ],
-        "user_data": "${base64encode(local.user_data_common)}",
+        "user_data": "${base64encode(replace(local.user_data_common, \"GIT_COMMIT='${var.git_commit}'\", \"GIT_COMMIT='${local.web_git_commit}'\"))}",
         "tag_specifications": [
           {
             "resource_type": "instance",

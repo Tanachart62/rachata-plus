@@ -38,6 +38,9 @@
     },
     "ami_id": {
       "value": "${local.ami}"
+    },
+    "web_git_commit": {
+      "value": "${local.web_git_commit}"
     }
   }
 }

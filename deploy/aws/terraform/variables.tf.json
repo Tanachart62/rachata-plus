@@ -153,6 +153,17 @@
           "error_message": "Prepare an owned private bucket with ensure-buckets.py, or use the existing bucket name from the recovery guide."
         }
       ]
+    },
+    "web_git_commit": {
+      "type": "string",
+      "description": "Optional frontend release commit; empty uses git_commit. Worker keeps git_commit.",
+      "default": "",
+      "validation": [
+        {
+          "condition": "${var.web_git_commit == \"\" || can(regex(\"^[a-f0-9]{40}$\", var.web_git_commit))}",
+          "error_message": "web_git_commit must be empty or a full lowercase Git commit SHA."
+        }
+      ]
     }
   }
 }

@@ -57,8 +57,6 @@ interface RouteProps {
     accounts: PreviewAccount[]
     register: (username: string, name: string, email: string) => void
     login: (email: string) => void
-    monitoringError: boolean
-    retryMonitoring: () => void
   }
 }
 export function AppRoutes({
@@ -93,8 +91,6 @@ export function AppRoutes({
     accounts: existingAccounts,
     register: onRegisterPreview,
     login: onLoginPreview,
-    monitoringError,
-    retryMonitoring: onRetryMonitoring,
   } = demo
   const [pending, setPending] = useState(true)
   useEffect(() => {
@@ -213,7 +209,7 @@ export function AppRoutes({
       )
   else if (path === '/admin/members')
     content = viewer === 'admin' && apiAuthEnabled
-      ? <AdminMembersPage actorId={account.userId} onChanged={account.refresh} />
+      ? <AdminMembersPage actor={account.user!} onChanged={account.refresh} />
       : <MessagePage title="สำหรับผู้ดูแลระบบ" message="เข้าสู่ระบบด้วยบัญชีแอดมินเพื่อจัดการสมาชิกจริง" />
   else if (path === '/admin/videos')
     content =
@@ -224,6 +220,8 @@ export function AppRoutes({
           onStatusChange={onStatusChange}
           onDelete={onDelete}
           onRetry={onRetryVideo}
+          actorId={account.userId}
+          onEdited={onUploaded}
         />
       ) : (
         <MessagePage
@@ -247,10 +245,8 @@ export function AppRoutes({
     content =
       viewer === 'admin' ? (
         <DashboardPage
-          videos={allVideos}
-          loading={loading}
-          monitoringError={monitoringError}
-          onRetry={onRetryMonitoring}
+          key={accountKey}
+          actorId={account.userId}
         />
       ) : (
         <MessagePage title="สำหรับผู้ดูแลระบบ" message="Dashboard นี้ใช้สำหรับแอดมิน" />
@@ -271,7 +267,6 @@ export function AppRoutes({
     content = (
       <ProfilePage
         key={accountKey}
-        savedVideos={videos.filter((video) => saved.has(video.id))}
         profile={profile}
         onSave={onSaveProfile}
         onPassword={onPassword}

@@ -6,9 +6,8 @@ import { durationLabel } from '../lib/video-time'
 
 function Hero({ video, loading, detail = false, saved = false, onToggle = () => {} }: { video: Video; loading: boolean; detail?: boolean; saved?: boolean; onToggle?: () => void }) {
   return <section className="rp-hero" aria-label={detail ? 'รายละเอียดวิดีโอ' : 'วิดีโอแนะนำ'}>
-    {!loading && video.coverUrl && <><img className="rp-hero-cover" src={video.coverUrl} alt="" /><div className="rp-hero-shade" /></>}
+    {!loading && video.coverUrl && <img className="rp-hero-cover" src={video.coverUrl} alt="" />}
     <div className="rp-hero-copy">{loading ? <><Skeleton shape="short" /><Skeleton shape="title" /><Skeleton shape="meta" /><Skeleton shape="line" /><Skeleton shape="line2" /><div className="rp-actions"><Skeleton shape="button" /><Skeleton shape="button2" /></div></> : <>
-      <div className="rp-eyebrow">{detail ? 'Rachata Plus · Video' : 'Featured on Rachata+'}</div>
       <h1>{video.title}</h1>
       <div className="rp-meta"><span>{video.category}</span><span>·</span><span>{durationLabel(video.durationSeconds)}{!video.processingStatus && ' (ตัวอย่าง)'}</span><span className="rp-tag">HD</span></div>
       <p className="rp-description">{video.description}</p>
@@ -28,7 +27,7 @@ export function HomePage({ videos, loading }: { videos: Video[]; loading: boolea
 }
 
 export function CatalogPage({ videos, loading }: { videos: Video[]; loading: boolean }) {
-  return <main className="rp-page"><div className="rp-page-heading"><div className="rp-eyebrow" lang="en">Explore</div><h1>วิดีโอทั้งหมด</h1></div>{videos.length ? <VideoGrid videos={videos} loading={loading} /> : <p>ยังไม่มีวิดีโอที่เผยแพร่</p>}</main>
+  return <main className="rp-page"><div className="rp-page-heading"><h1>วิดีโอทั้งหมด</h1></div>{videos.length ? <VideoGrid videos={videos} loading={loading} /> : <p>ยังไม่มีวิดีโอที่เผยแพร่</p>}</main>
 }
 
 export function DetailPage({ video, videos, loading, saved, onToggle }: { video: Video; videos: Video[]; loading: boolean; saved: boolean; onToggle: () => void }) {

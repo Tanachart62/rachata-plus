@@ -73,8 +73,8 @@ export function ChangePasswordForm({
             setFailure('')
             const nextErrors: Partial<Record<Fields, string>> = {}
             if (!values.current) nextErrors.current = 'กรุณาใส่รหัสผ่านปัจจุบัน'
-            if ([...values.next].length < 15 || [...values.next].length > 128)
-              nextErrors.next = 'รหัสผ่านใหม่ต้องมี 15–128 ตัวอักษร'
+            if ([...values.next].length < 8 || [...values.next].length > 128)
+              nextErrors.next = 'รหัสผ่านใหม่ต้องมี 8–128 ตัวอักษร'
             else if (values.next === values.current)
               nextErrors.next = 'รหัสผ่านใหม่ต้องต่างจากรหัสผ่านปัจจุบัน'
             if (!values.confirm || values.confirm !== values.next)
@@ -127,7 +127,7 @@ export function ChangePasswordForm({
                 setErrors({})
               }}
               error={errors[field]}
-              hint={field === 'next' ? '15–128 ตัวอักษร' : undefined}
+              hint={field === 'next' ? '8–128 ตัวอักษร' : undefined}
               autoComplete={field === 'current' ? 'current-password' : 'new-password'}
               disabled={pending}
             />

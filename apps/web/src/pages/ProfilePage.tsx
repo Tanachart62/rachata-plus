@@ -3,8 +3,8 @@ import { ProfileSessions } from '../components/ProfileSessions'
 import { ProfileAvatar } from '../components/ProfileAvatar'
 import type { ApiUser } from '../lib/auth'
 import { ChangePasswordForm } from '../components/ChangePasswordForm'
-import { Icon, Skeleton, VideoSection } from '../components/UI'
-import type { Profile, Video } from '../types'
+import { Icon, Skeleton } from '../components/UI'
+import type { Profile } from '../types'
 import { apiAuthEnabled } from '../lib/auth'
 import { useProfileForm } from '../hooks/useProfileForm'
 import { PasswordField } from '../components/PasswordField'
@@ -17,7 +17,6 @@ export function ProfilePage({
   subscribed,
   planName,
   expiresAt,
-  savedVideos,
   sessionUser,
   refreshSession,
 }: {
@@ -28,7 +27,6 @@ export function ProfilePage({
   subscribed: boolean
   planName: string
   expiresAt: number
-  savedVideos: Video[]
   sessionUser: ApiUser | null
   refreshSession: () => Promise<void>
 }) {
@@ -54,9 +52,6 @@ export function ProfilePage({
   return (
     <main className="rp-page">
       <div className="rp-page-heading">
-        <div className="rp-eyebrow" lang="en">
-          My account
-        </div>
         <h1>โปรไฟล์ของฉัน</h1>
         <p>ดูแลข้อมูลส่วนตัวและสิทธิ์สมาชิกของคุณ</p>
       </div>
@@ -85,7 +80,7 @@ export function ProfilePage({
             )}
           </div>
           <nav className="rp-profile-menu" aria-label="บัญชีของฉัน" role="tablist">
-            {(['account', 'membership'] as const).map((value) => (
+            {(['account'] as const).map((value) => (
               <button
                 key={value}
                 id={`profile-${value}`}
@@ -96,11 +91,11 @@ export function ProfilePage({
                 aria-controls="profile-panel"
                 onClick={() => setTab(value)}
                 onKeyDown={(event) =>
-                  moveTab(event, ['account', 'membership'] as const, tab, setTab, 'profile-')
+                  moveTab(event, ['account'] as const, tab, setTab, 'profile-')
                 }
               >
-                <Icon name={value === 'account' ? 'user' : 'check'} />
-                {value === 'account' ? 'ข้อมูลส่วนตัว' : 'สมาชิกของฉัน'}
+                <Icon name="user" />
+                ข้อมูลส่วนตัว
               </button>
             ))}
           </nav>
@@ -261,9 +256,6 @@ export function ProfilePage({
               {tab === 'account' && <ChangePasswordForm onSave={onPassword} />}
               {apiAuthEnabled && sessionUser && <ProfileSessions user={sessionUser} refresh={refreshSession} />}
               <section className="rp-surface rp-membership">
-                <div className="rp-eyebrow" lang="en">
-                  Rachata Plus membership
-                </div>
                 <div className="rp-profile-head">
                   <h2>{subscribed ? 'แพ็กเกจ ' + planName : 'บัญชีทั่วไป · Free'}</h2>
                   <span className={`rp-pill ${subscribed ? 'rp-positive' : ''}`}>
@@ -295,10 +287,6 @@ export function ProfilePage({
                   </a>
                 </div>
               </section>
-              <VideoSection title="ดูภายหลัง" videos={savedVideos} loading={loading} />
-              {!savedVideos.length && (
-                <p>กดดูภายหลังจากหน้ารายละเอียดวิดีโอเพื่อเก็บรายการไว้ที่นี่</p>
-              )}
             </>
           )}
         </div>

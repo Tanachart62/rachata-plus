@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { accountError, AuthError } from '../lib/auth'
+import defaultAvatar from '../assets/default-avatar.png'
 
 const maxBytes = 2 * 1024 * 1024
 
@@ -85,7 +86,7 @@ export function ProfileAvatar({ userId, name }: { userId: number; name: string }
     }
   }
   return <div className="rp-profile-avatar" aria-busy={pending}>
-    {url ? <img className="rp-avatar" src={url} alt={`รูปโปรไฟล์ของ ${name}`} /> : <div className="rp-avatar">รูปโปรไฟล์</div>}
+    <img className="rp-avatar" src={url || defaultAvatar} alt={`รูปโปรไฟล์ของ ${name}`} />
     <button ref={button} className="rp-softbutton" type="button" disabled={pending}
       aria-describedby={`${hintId} ${errorId}`} onClick={() => picker.current?.click()}>
       {pending ? 'กำลังอัปโหลด…' : 'อัปโหลดรูปโปรไฟล์'}
@@ -132,5 +133,5 @@ export function AccountAvatar({ userId }: { userId: number }) {
       if (pictureUrl) URL.revokeObjectURL(pictureUrl)
     }
   }, [userId])
-  return url ? <img className="rp-accountdot" src={url} alt="" /> : <span className="rp-accountdot" aria-hidden="true">RP</span>
+  return <img className="rp-accountdot" src={url || defaultAvatar} alt="" />
 }

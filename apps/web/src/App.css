@@ -16,13 +16,13 @@
 .app-shell .rp-navlinks button[aria-current=page] { color:var(--rp-text); box-shadow:0 2px 0 var(--rp-red); }
 .app-shell .rp-navend { margin-left:auto; display:flex; align-items:center; gap:10px; }
 .app-shell .rp-signin { border:1px solid var(--rp-edge); }
-.app-shell .rp-hero { position:relative; min-height:390px; padding:58px 40px 40px; display:flex; align-items:center; isolation:isolate; background:linear-gradient(0deg,var(--rp-bg),transparent 38%),linear-gradient(100deg,#11131b 20%,#1c202b); }
+.app-shell .rp-hero { position:relative; min-height:390px; padding:58px 40px 40px; display:flex; align-items:center; isolation:isolate; background:var(--rp-bg); }
 .app-shell .rp-hero-cover { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:-2; }
-.app-shell .rp-hero-shade { position:absolute; inset:0; background:linear-gradient(90deg,#0e1016 0%,rgba(14,16,22,.94) 40%,rgba(14,16,22,.3) 100%),linear-gradient(0deg,#0e1016,transparent 55%); z-index:-1; }
+.app-shell .rp-hero::before { content:''; position:absolute; inset:0; z-index:-1; pointer-events:none; background:linear-gradient(90deg,rgba(14,16,22,.88) 0%,rgba(14,16,22,.65) 28%,rgba(14,16,22,.25) 45%,transparent 65%); }
 .app-shell .rp-art-label { position:absolute; top:34px; right:32px; color:#9499a8; font-size:12px; letter-spacing:.03em; }
 .app-shell .rp-hero-copy { width:53%; max-width:520px; z-index:1; }
-.app-shell .rp-eyebrow { display:flex; gap:10px; align-items:center; color:#c4c7d2; font-size:11px; letter-spacing:2px; text-transform:uppercase; margin-bottom:16px; }
-.app-shell .rp-eyebrow::before { content:''; width:20px; height:2px; background:var(--rp-red); }
+.app-shell .rp-hero-copy h1, .app-shell .rp-hero-copy .rp-meta, .app-shell .rp-hero-copy .rp-description, .app-shell .rp-hero-copy .rp-access { color:#fff; text-shadow:0 1px 3px #000,0 2px 8px #000; }
+.app-shell .rp-hero-copy .rp-meta, .app-shell .rp-hero-copy .rp-description { font-weight:600; }
 .app-shell h1 { font-size:clamp(30px,4.6vw,50px); line-height:1.3; font-weight:700; letter-spacing:-1px; margin-bottom:12px; }
 .app-shell .rp-meta { display:flex; align-items:center; gap:10px; color:#b6bac7; font-size:12px; margin-bottom:15px; flex-wrap:wrap; }
 .app-shell .rp-tag { border:1px solid #4d5262; padding:0 7px; border-radius:3px; font-size:11px; letter-spacing:.05em; }
@@ -255,26 +255,16 @@
 @media (max-width: 440px) { .app-shell .rp-navend .rp-linkbutton { padding: 8px 10px; font-size: 12px; } }
 
 /* Account screens: the same charcoal / red palette as the streaming pages. */
-.app-shell .auth-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: clamp(32px, 6vw, 88px); max-width: 1200px; margin: 0 auto; padding: 64px 40px 72px; align-items: center; }
-.app-shell .auth-intro { min-width: 0; }
-.app-shell .auth-intro .auth-intro-title { font-size: clamp(38px, 4.5vw, 60px); line-height: 1.3; letter-spacing: -1.5px; font-weight: 700; margin-bottom: 20px; }
-.app-shell .auth-intro .auth-intro-title > span { color: var(--rp-red); }
-.app-shell .auth-intro > p:not(.auth-intro-title) { color: var(--rp-muted); font-size: 16px; line-height: 1.9; }
-.app-shell .auth-art { background: #181c26; border: 1px solid var(--rp-edge); border-radius: 10px; min-height: 220px; max-width: 400px; margin-top: 36px; padding: 22px; display: flex; flex-direction: column; justify-content: space-between; }
-.app-shell .auth-art > span { color: #9198aa; font-size: 12px; text-align: right; }
-.app-shell .auth-art-caption { font-size: 22px; font-weight: 800; letter-spacing: -1px; }
-.app-shell .auth-art-caption > span { color: var(--rp-red); }
-.app-shell .auth-art-caption small { display: block; font-size: 12px; color: var(--rp-muted); font-weight: 400; letter-spacing: 0; margin-top: 7px; }
-.app-shell .auth-card { background: #14171f; border: 1px solid var(--rp-edge); border-radius: 12px; padding: 34px; min-width: 0; }
+.app-shell .auth-page { max-width: 520px; margin: 0 auto; padding: 64px 40px 72px; }
+.app-shell .auth-card { background: #14171f; border: 1px solid var(--rp-edge); border-radius: 12px; padding: 48px 34px; min-width: 0; min-height: 540px; }
 .app-shell .auth-card h1 { font-size: 32px; letter-spacing: -.5px; margin-bottom: 10px; }
-.app-shell .auth-card .rp-eyebrow { font-size: 11px; letter-spacing: 1.5px; }
 .app-shell .auth-subtitle { color: var(--rp-muted); font-size: 14px; }
 .app-shell .auth-demo { border-left: 2px solid #575165; color: #adb1bf; font-size: 12px; padding: 0 0 0 12px; margin: 20px 0 26px; line-height: 1.8; }
 .app-shell .auth-password { position: relative; }
 .app-shell .auth-password input { padding-right: 72px; }
 .app-shell .auth-reveal { position: absolute; top: 1px; right: 3px; bottom: 1px; min-height: 40px; min-width: 62px; padding: 6px 10px; font-size: 12px; color: #b8bdcc; }
 .app-shell .auth-reveal:hover { color: var(--rp-text); background: #242935; }
-.app-shell .auth-card .rp-field { margin-top: 20px; }
+.app-shell .auth-card .rp-field { margin-top: 24px; }
 .app-shell .auth-card .rp-field input { min-height: 46px; }
 .app-shell .auth-card .rp-field input[aria-invalid=true] { border-color: #fa7187; }
 .app-shell .auth-error { color: #ff9cac; font-size: 12px; }
@@ -293,18 +283,12 @@
 @keyframes auth-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .app-shell .auth-spinner { animation: none; } }
 @media (max-width: 860px) {
-  .app-shell .auth-page { grid-template-columns: minmax(0, 1fr); max-width: 560px; padding: 36px 24px 48px; gap: 30px; }
-  .app-shell .auth-art { display: none; }
-  .app-shell .auth-intro .auth-intro-title { font-size: 36px; margin-bottom: 10px; }
-  .app-shell .auth-intro .auth-intro-title br { display: none; }
-  .app-shell .auth-intro > p:not(.auth-intro-title) { font-size: 14px; }
-  .app-shell .auth-intro > p:not(.auth-intro-title) br { display: none; }
+  .app-shell .auth-page { padding: 36px 24px 48px; }
 }
 @media (max-width: 440px) {
   .app-shell .auth-page { padding: 28px 20px 36px; }
-  .app-shell .auth-card { padding: 24px 20px; }
+  .app-shell .auth-card { padding: 32px 20px; min-height: 0; }
   .app-shell .auth-card h1 { font-size: 28px; }
-  .app-shell .auth-intro .auth-intro-title { font-size: 30px; }
   .app-shell .auth-card .rp-field input { font-size: 16px; }
   .app-shell .rp-navend { gap: 8px; }
 }
@@ -560,7 +544,7 @@
 /* Keep password reveal buttons beside, rather than on top of, enlarged text. */
 .app-shell .auth-password { display:flex; align-items:stretch; }
 .app-shell .auth-password input { flex:1; min-width:0; width:0; padding-right:12px; border-radius:6px 0 0 6px; }
-.app-shell .auth-reveal { position:static; flex:0 0 auto; border:1px solid var(--rp-input-border); border-left:0; border-radius:0 6px 6px 0; min-height:44px; }
+.app-shell .auth-reveal { position:static; display:flex; align-items:center; justify-content:center; flex:0 0 auto; border:1px solid var(--rp-input-border); border-left:0; border-radius:0 6px 6px 0; min-width:44px; min-height:44px; }
 
 .membership-admin-form { padding: 1.5rem; margin-block: 1rem; }
 .membership-admin-form > .rp-field { max-width: 36rem; margin-bottom: 1rem; }
@@ -584,8 +568,13 @@
 .app-shell .rp-hls-buttons button { display:grid; place-items:center; background:transparent; color:#fff; min-height:44px; min-width:44px; padding:8px; }
 .app-shell .rp-hls-time { font-variant-numeric:tabular-nums; white-space:nowrap; font-size:12px; }
 .app-shell .rp-hls-volume { width:76px; }
-.app-shell .rp-player-quality { margin-left:auto; display:flex; min-width:0; }
-.app-shell .rp-player-quality select { color:#fff; background:#191c25; border:1px solid #858b9d; border-radius:6px; padding:8px; min-height:44px; max-width:100%; }
+.app-shell .rp-player-quality { position:relative; margin-left:auto; display:flex; min-width:0; }
+.app-shell .rp-player-quality::after { content:''; position:absolute; right:16px; top:calc(50% - 5px); width:7px; height:7px; border-right:2px solid #dce2ed; border-bottom:2px solid #dce2ed; transform:rotate(45deg); pointer-events:none; }
+.app-shell .rp-player-quality select { appearance:none; color:#fff; background:#242a36; border:1px solid #606b80; border-radius:999px; padding:10px 38px 10px 16px; min-height:44px; max-width:100%; font:inherit; font-size:13px; font-weight:600; cursor:pointer; box-shadow:0 2px 8px #0003; transition:background .15s,border-color .15s; }
+.app-shell .rp-player-quality select:hover:not(:disabled) { background:#30394a; border-color:#8d9ab1; }
+.app-shell .rp-player-quality select:focus-visible { outline:2px solid #fff; outline-offset:3px; }
+.app-shell .rp-player-quality select:disabled { opacity:.55; cursor:default; }
+.app-shell .rp-player-quality option { background:#191c25; color:#fff; }
 .app-shell .rp-hls-controls :is(input,select):focus-visible { outline:2px solid #fff; outline-offset:2px; }
 .app-shell .rp-hls-notice { margin:0; padding:4px; font-size:12px; }
 .app-shell .rp-hls-player:fullscreen { display:flex; flex-direction:column; justify-content:center; width:100%; height:100%; }
@@ -603,3 +592,29 @@
   .app-shell .rp-hls-buttons button, .app-shell .rp-player-quality select { color:ButtonText; background:ButtonFace; }
   .app-shell .rp-hls-controls :is(input,select):focus-visible { outline-color:Highlight; }
 }
+
+.app-shell .admin-edit-dialog { width:min(560px,calc(100vw - 32px)); max-height:85vh; overflow-y:auto; }
+.app-shell .admin-edit-cover { display:block; max-width:100%; max-height:220px; object-fit:contain; margin:16px 0; border-radius:8px; }
+
+.app-shell .dashboard-live-table { width:100%; border-collapse:collapse; text-align:left; }
+.app-shell .dashboard-live-table caption { text-align:left; padding-bottom:12px; color:var(--rp-muted); font-size:12px; }
+.app-shell .dashboard-live-table th, .app-shell .dashboard-live-table td { padding:12px; border-bottom:1px solid var(--rp-edge); overflow-wrap:anywhere; }
+.app-shell .dashboard-activity-list { list-style:none; margin:0; padding:0; }
+.app-shell .dashboard-activity-list li { display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:16px 0; border-top:1px solid var(--rp-edge); }
+.app-shell .dashboard-activity-list li > div { min-width:0; overflow-wrap:anywhere; }
+.app-shell .dashboard-activity-list p, .app-shell .dashboard-activity-list time { color:var(--rp-muted); font-size:12px; }
+.app-shell .dashboard-metrics { margin-top:20px; }
+.app-shell .admin-cover { overflow:hidden; }
+.app-shell .admin-cover img { width:100%; height:100%; object-fit:cover; display:block; }
+.app-shell .rp-end-screen { position:absolute; inset:0 0 76px; z-index:2; overflow:auto; padding:clamp(16px,3vw,40px); background:rgba(10,12,18,.97); color:#fff; }
+.app-shell .rp-end-heading { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:20px; }
+.app-shell .rp-end-heading h2 { margin:0 0 8px; font-size:clamp(20px,2.5vw,30px); }
+.app-shell .rp-end-heading p, .app-shell .rp-end-card small { color:#b8c0d0; font-size:13px; }
+.app-shell .rp-end-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
+.app-shell .rp-end-card { display:flex; flex-direction:column; gap:8px; color:#fff; text-decoration:none; min-width:0; border-radius:10px; }
+.app-shell .rp-end-card strong { font-size:14px; overflow-wrap:anywhere; }
+.app-shell .rp-end-cover { display:grid; place-items:center; aspect-ratio:16/9; overflow:hidden; border-radius:10px; background:#242a36; border:1px solid #4a5366; }
+.app-shell .rp-end-cover img { width:100%; height:100%; object-fit:cover; }
+.app-shell .rp-end-card:hover .rp-end-cover { border-color:#ff8096; }
+.app-shell .rp-end-card:focus-visible { outline:2px solid #fff; outline-offset:4px; }
+@media(max-width:640px) { .app-shell .rp-end-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .app-shell .rp-end-screen { bottom:100px; } }

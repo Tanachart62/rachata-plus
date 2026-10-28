@@ -58,7 +58,6 @@ export default function App() {
   const [demoSaved, setDemoSaved] = useState(new Set<number>())
   const [demoHistory, setDemoHistory] = useState<WatchHistoryEntry[]>([])
   const [forceLoading, setForceLoading] = useState(false)
-  const [monitoringError, setMonitoringError] = useState(false)
   const profile: Profile = session.user
     ? {
         username: session.user.username,
@@ -162,12 +161,12 @@ export default function App() {
                   path === '/admin/videos' || path === '/admin/upload' ? 'page' : undefined
                 }
               >
-                จัดการวิดีโอ
+                จัดการ
               </a>
             </>
           )}
         </nav>
-        <SearchBar key={path} path={path} />
+        {path !== '/login' && path !== '/register' && <SearchBar key={path} path={path} />}
         <div className="rp-navend">
           {adminPage && viewer === 'admin' && <span className="rp-adminbadge">ADMIN</span>}
           {viewer === 'guest' ? (
@@ -258,11 +257,9 @@ export default function App() {
             register: (username, name, email) =>
               setAccounts((items) => [...items, { username, name, email }]),
             login: loginPreview,
-            monitoringError,
-            retryMonitoring: () => setMonitoringError(false),
           }}
         />
-        {apiAuthEnabled && ['/profile', '/history'].includes(path) && library.cursors.savedNext && (
+        {apiAuthEnabled && path === '/history' && library.cursors.savedNext && (
           <button
             className="rp-softbutton"
             disabled={library.paging}
@@ -312,14 +309,6 @@ export default function App() {
                 onChange={(e) => setForceLoading(e.target.checked)}
               />
               แสดง Skeleton ค้างไว้
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={monitoringError}
-                onChange={(e) => setMonitoringError(e.target.checked)}
-              />
-              จำลอง Cloud Monitoring ขัดข้อง
             </label>
           </div>
         </details>

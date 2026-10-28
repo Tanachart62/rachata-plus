@@ -3,14 +3,16 @@ import { accountError } from '../lib/auth'
 import type { ApiUser } from '../lib/auth'
 import { findMembership, listMembershipAccounts, manageMembership } from '../lib/membership'
 import type { MembershipAction, MembershipEvent } from '../lib/membership'
+import { AdminAccountControls } from '../components/AdminAccountControls'
 import { AccountSessions } from '../components/AccountSessions'
 import { membershipPlans } from '../data/plans'
 
 const planName = (id: string) => membershipPlans.find(plan => plan.id === id)?.name ?? 'Free'
-const actionNames: Record<MembershipAction, string> = { grant: 'เปิด / ต่ออายุสมาชิก', revoke: 'ยกเลิกสิทธิ์สมาชิก', suspend: 'ระงับบัญชี', reactivate: 'เปิดใช้งานบัญชีคืน', logout_all: 'ออกจากระบบทุกอุปกรณ์', logout_session: 'ตัดการเชื่อมต่อเซสชัน' }
+const actionNames: Record<MembershipEvent['action'], string> = { grant: 'เปิด / ต่ออายุสมาชิก', revoke: 'ยกเลิกสิทธิ์สมาชิก', suspend: 'ระงับบัญชี', reactivate: 'เปิดใช้งานบัญชีคืน', logout_all: 'ออกจากระบบทุกอุปกรณ์', logout_session: 'ตัดการเชื่อมต่อเซสชัน', set_role: 'เปลี่ยนระดับสิทธิ์', reset_password: 'รีเซ็ตรหัสผ่าน', delete_account: 'ลบบัญชี' }
 const date = (value: number) => value ? new Date(value).toLocaleString('th-TH') : '—'
 
-export function AdminMembersPage({ actorId, onChanged }: { actorId: number; onChanged: () => Promise<void> }) {
+export function AdminMembersPage({ actor, onChanged }: { actor: ApiUser; onChanged: () => Promise<void> }) {
+  const actorId = actor.id
   const [email, setEmail] = useState('')
   const [query, setQuery] = useState('')
   const [accounts, setAccounts] = useState<ApiUser[]>([])
@@ -121,7 +123,7 @@ export function AdminMembersPage({ actorId, onChanged }: { actorId: number; onCh
       {listError && <div role="alert"><p>{listError}</p><button className="rp-softbutton" disabled={listBusy || busy} onClick={() => void loadList(nextCursor)}>ลองโหลดรายชื่อใหม่</button></div>}
       {!listBusy && !listError && !accounts.length && <p>ไม่พบบัญชีที่ตรงกับการค้นหา</p>}
       <ul ref={listElement} className="membership-account-list">{accounts.map(user => <li key={user.id}>
-        <div><strong>{user.name} · @{user.username}</strong><p>{user.email}</p><small>{user.role === 'admin' ? 'ผู้ดูแลระบบ' : planName(user.plan)}{user.expiresAt ? ` · หมดอายุ ${date(user.expiresAt)}` : ''}{user.accountStatus === 'suspended' ? ' · ระงับบัญชี' : ' · ใช้งานได้'}</small></div>
+        <div><strong>{user.name} · @{user.username}</strong><p>{user.email}</p><small>{user.role === 'admin' ? (user.adminLevel === 'owner' ? 'เจ้าของระบบ' : 'แอดมิน') : planName(user.plan)}{user.expiresAt ? ` · หมดอายุ ${date(user.expiresAt)}` : ''}{user.accountStatus === 'suspended' ? ' · ระงับบัญชี' : ' · ใช้งานได้'}</small></div>
         <button className="rp-softbutton" data-account-email={user.email} disabled={busy || listBusy} aria-label={`จัดการสมาชิก ${user.email}`} onClick={() => void selectAccount(user.email)}>จัดการ</button>
       </li>)}</ul>
       {nextCursor && <button className="rp-softbutton" disabled={listBusy || busy} onClick={() => void loadList(nextCursor)}>โหลดรายชื่อเพิ่มเติม</button>}
@@ -142,6 +144,7 @@ export function AdminMembersPage({ actorId, onChanged }: { actorId: number; onCh
       <h2 ref={resultHeading} tabIndex={-1}>{target.name} · @{target.username}</h2>
       <p>{target.email}{target.role === 'admin' && ' · ผู้ดูแลระบบมีสิทธิ์รับชมโดยไม่ต้องมีแพ็กเกจ'}</p>
       <dl className="rp-info-grid"><div><dt>สถานะบัญชี</dt><dd>{target.accountStatus === "suspended" ? "ระงับบัญชี" : "ใช้งานได้"}</dd></div><div><dt>แพ็กเกจปัจจุบัน</dt><dd>{planName(target.plan)}</dd></div><div><dt>วันหมดอายุ</dt><dd>{date(target.expiresAt)}</dd></div></dl>
+      {(actor.adminLevel === 'owner' || target.role !== 'admin' || target.id === actorId) ? <>
       {review ? <section aria-labelledby="membership-review-heading">
         <h3 id="membership-review-heading" ref={reviewHeading} tabIndex={-1}>ยืนยัน{actionNames[review]}</h3>
         <p>{review === 'grant' ? `เปิด ${planName(plan)} ให้ ${target.email} เพิ่ม ${days} วัน${target.member ? ' ต่อจากวันหมดอายุเดิม เปลี่ยนแพ็กเกจมีผลทันที' : ' เริ่มทันที'}` : review === 'revoke' ? `ยกเลิกสิทธิ์สมาชิกของ ${target.email} ทันที` : review === 'suspend' ? `ระงับ ${target.email} และออกจากระบบทุกอุปกรณ์ บัญชีจะเข้าสู่ระบบและรับชมวิดีโอเต็มไม่ได้ ข้อมูลและวันหมดอายุสมาชิกเดิมยังคงอยู่` : review === 'reactivate' ? `เปิดใช้งาน ${target.email} คืน ผู้ใช้ต้องเข้าสู่ระบบใหม่ วันหมดอายุสมาชิกไม่เปลี่ยน` : `ออกจากระบบทุกอุปกรณ์ของ ${target.email} ผู้ใช้ยังเข้าสู่ระบบใหม่ได้${target.id === actorId ? ' รวมถึงเซสชันแอดมินที่คุณกำลังใช้' : ''}`}</p>
@@ -149,7 +152,7 @@ export function AdminMembersPage({ actorId, onChanged }: { actorId: number; onCh
           <button className="rp-softbutton" disabled={busy} onClick={() => { const previous = review; setReview(null); requestAnimationFrame(() => (previous === 'grant' ? grantButton.current : previous === 'revoke' ? revokeButton.current : controlButtons.current[previous])?.focus()) }}>กลับไปแก้ไข</button>
           <button className="rp-mainbutton" disabled={busy} onClick={() => void confirm()}>{busy ? 'กำลังบันทึก…' : 'ยืนยัน'}</button>
         </div>
-      </section> : <form onSubmit={event => { event.preventDefault(); setError(''); setReview('grant') }}>
+      </section> : (actor.adminLevel === 'owner' || target.role !== 'admin') && <form onSubmit={event => { event.preventDefault(); setError(''); setReview('grant') }}>
         <div className="membership-admin-fields">
           <div className="rp-field"><label htmlFor="membership-plan">แพ็กเกจ</label><select id="membership-plan" value={plan} disabled={busy} onChange={event => setPlan(event.target.value)}>{membershipPlans.filter(item => !item.free).map(item => <option key={item.id} value={item.id}>{item.name} · {item.price}</option>)}</select></div>
           <label className="rp-field" htmlFor="membership-days">จำนวนวันที่เพิ่ม (1–365)<input id="membership-days" type="number" min={1} max={365} step={1} required value={days} disabled={busy} onChange={event => setDays(Number(event.target.value))} /></label>
@@ -161,9 +164,9 @@ export function AdminMembersPage({ actorId, onChanged }: { actorId: number; onCh
         <h3 id="account-controls-heading">บัญชีและความปลอดภัย</h3>
         <p>การระงับเก็บข้อมูลเดิมไว้ และไม่หยุดนับวันสมาชิก การเปิดบัญชีคืนไม่คืนเซสชันเดิม</p>
         <div className="rp-actions">
-          {target.accountStatus === 'suspended'
+          {(actor.adminLevel === 'owner' || target.role !== 'admin') && (target.accountStatus === 'suspended'
             ? <button type="button" className="rp-softbutton" ref={button => { controlButtons.current.reactivate = button }} disabled={busy} onClick={() => { setError(''); setReview('reactivate') }}>เปิดใช้งานบัญชีคืน</button>
-            : <button type="button" className="rp-softbutton" ref={button => { controlButtons.current.suspend = button }} disabled={busy || target.id === actorId} onClick={() => { setError(''); setReview('suspend') }}>ระงับบัญชี</button>}
+            : <button type="button" className="rp-softbutton" ref={button => { controlButtons.current.suspend = button }} disabled={busy || target.id === actorId} onClick={() => { setError(''); setReview('suspend') }}>ระงับบัญชี</button>)}
           <button type="button" className="rp-softbutton" ref={button => { controlButtons.current.logout_all = button }} disabled={busy} onClick={() => { setError(''); setReview('logout_all') }}>ออกจากระบบทุกอุปกรณ์</button>
         </div>
         {target.id === actorId && <p>ไม่สามารถระงับบัญชีแอดมินที่กำลังใช้งานอยู่</p>}
@@ -178,6 +181,14 @@ export function AdminMembersPage({ actorId, onChanged }: { actorId: number; onCh
           setTarget(latest.user); setEvents(latest.events)
         } catch { if (!signal.aborted) { setEvents([]); setNotice('ตัดการเชื่อมต่อแล้ว แต่โหลดประวัติไม่ได้ กรุณาเปิดบัญชีนี้ใหม่') } }
       }} />}
+      </> : <p>บัญชีแอดมินนี้จัดการได้เฉพาะเจ้าของระบบ</p>}
+      <AdminAccountControls key={target.id} actor={actor} target={target} disabled={busy} onBusy={setBusy} onSaved={async next => {
+        setTarget(next); setAccounts(previous => previous.map(user => user.id === next.id ? next : user))
+        const latest = await findMembership(actorId, next.email)
+        setTarget(latest.user); setEvents(latest.events)
+      }} onDeleted={() => {
+        setAccounts(previous => previous.filter(user => user.id !== target.id)); setTarget(null); setSelectedEmail(null); setEvents([]); setReview(null); setNotice('ลบบัญชีแล้ว')
+      }} />
       <h3>ประวัติการจัดการล่าสุด (สูงสุด 20 รายการ)</h3>
       {events.length ? <ul>{events.map((event, index) => <li key={index}>{date(event.createdAt)} · {event.actor} · {event.action === 'grant' ? `เปิด / ต่ออายุ ${planName(event.plan)} ถึง ${date(event.expiresAt)}` : `${actionNames[event.action]}${event.sessionId ? " #" + event.sessionId : ""}`}</li>)}</ul> : <p>ยังไม่มีประวัติการจัดการที่แสดงได้</p>}
     </section>}

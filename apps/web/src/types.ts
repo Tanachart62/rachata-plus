@@ -2,6 +2,7 @@ export type Viewer = 'guest' | 'user' | 'member' | 'admin'
 export type PublicationStatus = 'draft' | 'published' | 'hidden'
 
 export interface Video {
+  metadataRevision?: number
   id: number
   title: string
   description: string

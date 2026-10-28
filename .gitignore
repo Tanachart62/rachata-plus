@@ -17,6 +17,8 @@ dist/
 .vite-temp/
 .cache/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # Go build outputs
 /apps/api/api

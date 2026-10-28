@@ -9,6 +9,7 @@ export interface ApiUser {
   name: string
   email: string
   role: 'user' | 'admin'
+  adminLevel: '' | 'admin' | 'owner'
   member: boolean
   plan: string
   expiresAt: number
@@ -32,6 +33,7 @@ export function readUser(data: unknown): ApiUser {
     typeof u.name !== 'string' ||
     typeof u.email !== 'string' ||
     (u.role !== 'user' && u.role !== 'admin') ||
+    (u.adminLevel !== undefined && !['', 'admin', 'owner'].includes(u.adminLevel as string)) ||
     (u.accountStatus !== undefined && u.accountStatus !== 'active' && u.accountStatus !== 'suspended') ||
     (u.plan !== undefined && !['', 'basic', 'standard', 'premium'].includes(u.plan as string)) ||
     (u.expiresAt !== undefined && (!Number.isSafeInteger(u.expiresAt) || (u.expiresAt as number) < 0)) ||
@@ -45,6 +47,7 @@ export function readUser(data: unknown): ApiUser {
     name: u.name,
     email: u.email,
     role: u.role,
+    adminLevel: u.adminLevel === 'owner' ? 'owner' : u.role === 'admin' ? 'admin' : '',
     member: u.member === true,
     accountStatus: u.accountStatus === "suspended" ? "suspended" : "active",
     plan: typeof u.plan === "string" ? u.plan : "",
@@ -106,7 +109,7 @@ export function accountError(error: unknown) {
     invalid_current_password: 'รหัสผ่านปัจจุบันไม่ถูกต้อง',
     email_already_exists: 'อีเมลนี้มีบัญชีใช้งานแล้ว',
     invalid_name: 'ชื่อ–นามสกุลต้องมี 1–100 ตัวอักษร',
-    invalid_password_length: 'รหัสผ่านต้องมี 15–128 ตัวอักษร',
+    invalid_password_length: 'รหัสผ่านต้องมี 8–128 ตัวอักษร',
     password_unchanged: 'รหัสผ่านใหม่ต้องต่างจากรหัสผ่านปัจจุบัน',
     unauthenticated: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่',
     membership_required: 'ต้องมีสิทธิ์สมาชิกเพื่อบันทึกการรับชมวิดีโอเต็ม',
@@ -114,6 +117,10 @@ export function accountError(error: unknown) {
     session_not_found: 'เซสชันนี้หมดอายุหรือถูกตัดไปแล้ว กรุณาโหลดรายการใหม่',
     cannot_suspend_self: 'ไม่สามารถระงับบัญชีแอดมินที่กำลังใช้งานอยู่',
     admin_required: 'บัญชีนี้ไม่มีสิทธิ์จัดการสมาชิก',
+    owner_required: 'คำสั่งนี้ต้องใช้สิทธิ์เจ้าของระบบ',
+    cannot_control_self: 'ใช้หน้าโปรไฟล์เพื่อเปลี่ยนรหัสผ่านของตัวเอง ไม่สามารถเปลี่ยนสิทธิ์หรือลบบัญชีตัวเองที่นี่',
+    confirmation_mismatch: 'อีเมลยืนยันไม่ตรงกับบัญชีที่จะลบ',
+    role_unchanged: 'บัญชีนี้มีสิทธิ์ตามที่เลือกอยู่แล้ว',
     user_not_found: 'ไม่พบบัญชีที่ใช้อีเมลนี้',
     membership_conflict: 'สิทธิ์ถูกแก้ไขแล้ว กรุณาโหลดหน้าใหม่ก่อนยืนยัน',
     upgrade_only: 'เลือกได้เฉพาะแพ็กเกจที่สูงกว่าสิทธิ์ปัจจุบัน',

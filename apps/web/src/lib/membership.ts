@@ -3,6 +3,7 @@ import type { ApiUser } from './auth'
 import { ApiError, isObject, jsonRequest } from './http'
 
 export type MembershipAction = 'grant' | 'revoke' | 'suspend' | 'reactivate' | 'logout_all' | 'logout_session'
+export type AccountControlAction = 'set_role' | 'reset_password' | 'delete_account'
 export interface DeviceSession {
   id: string
   device: string
@@ -24,7 +25,7 @@ export async function listDeviceSessions(actorId: number, userId: number, cursor
   return { sessions, nextCursor: data.nextCursor }
 }
 export interface MembershipEvent {
-  action: MembershipAction
+  action: MembershipAction | AccountControlAction
   plan: string
   expiresAt: number
   createdAt: number
@@ -43,7 +44,7 @@ export async function findMembership(actorId: number, email: string, signal?: Ab
   if (!isObject(data) || data.actorId !== actorId) throw new ApiError('account_changed')
   if (!Array.isArray(data.events) || data.events.length > 20) throw new ApiError('service_unavailable')
   const events = data.events.map((event): MembershipEvent => {
-    if (!isObject(event) || !['grant', 'revoke', 'suspend', 'reactivate', 'logout_all', 'logout_session'].includes(event.action as string) ||
+    if (!isObject(event) || !['grant', 'revoke', 'suspend', 'reactivate', 'logout_all', 'logout_session', 'set_role', 'reset_password', 'delete_account'].includes(event.action as string) ||
       typeof event.plan !== 'string' || !Number.isSafeInteger(event.expiresAt) ||
       !Number.isSafeInteger(event.createdAt) || typeof event.actor !== 'string' || typeof event.sessionId !== 'string')
       throw new ApiError('service_unavailable')
@@ -66,5 +67,19 @@ export async function revokeOwnDeviceSession(userId: number, sessionId: string, 
   if (!isObject(data) || data.actorId !== userId) throw new ApiError('account_changed')
   const user = readUser(data)
   if (user.id !== userId) throw new ApiError('account_changed')
+  return user
+}
+
+export async function controlAccount(actorId: number, target: ApiUser, action: AccountControlAction, level: string, currentPassword: string, newPassword: string, confirmEmail: string, signal?: AbortSignal) {
+  const data = await jsonRequest(`/auth/admin/accounts/${target.id}/control`, {
+    body: { expectedUserId: actorId, expectedRevision: target.membershipRevision, action, level, currentPassword, newPassword, confirmEmail }, signal,
+  })
+  if (!isObject(data) || data.actorId !== actorId) throw new ApiError('account_changed')
+  if (action === 'delete_account') {
+    if (data.deleted !== true || data.userId !== target.id) throw new ApiError('service_unavailable')
+    return null
+  }
+  const user = readUser(data)
+  if (user.id !== target.id) throw new ApiError('account_changed')
   return user
 }

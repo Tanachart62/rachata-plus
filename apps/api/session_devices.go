@@ -93,6 +93,17 @@ func (a *authConfig) listSessions(db *pgxpool.Pool, own bool) gin.HandlerFunc {
 			c.JSON(404, gin.H{"error": "user_not_found"})
 			return
 		}
+		if !own && id != actor.ID && actor.AdminLevel != "owner" {
+			target, readErr := readMembershipAccount(ctx, db, id)
+			if readErr != nil {
+				accountFailure(c, readErr)
+				return
+			}
+			if target.Role == "admin" {
+				c.JSON(403, gin.H{"error": "owner_required"})
+				return
+			}
+		}
 		rows, err := db.Query(ctx, `SELECT session_id::text,user_agent,(EXTRACT(EPOCH FROM created_at)*1000)::bigint,
    (EXTRACT(EPOCH FROM expires_at)*1000)::bigint,token_hash FROM sessions WHERE user_id=$1 AND expires_at>NOW()
    AND ($2::bigint=0 OR session_id<$2) ORDER BY session_id DESC LIMIT 51`, id, cursor)

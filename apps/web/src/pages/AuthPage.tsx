@@ -63,8 +63,8 @@ export function AuthPage({ mode, initialEmail, onRegisterPreview, onLoginPreview
     if (register && !apiAuthEnabled && existingAccounts.some(account => account.email === normalizedEmail)) next.email = 'อีเมลนี้ถูกใช้แล้วในเดโม่ กรุณาใช้อีเมลอื่น'
     // Match the existing Go registration handler's Unicode character limits.
     if (!password) next.password = 'กรุณาใส่รหัสผ่าน'
-    else if (register && ([...password].length < 15 || [...password].length > 128)) {
-      next.password = 'รหัสผ่านต้องมี 15–128 ตัวอักษร'
+    else if (register && ([...password].length < 8 || [...password].length > 128)) {
+      next.password = 'รหัสผ่านต้องมี 8–128 ตัวอักษร'
     }
     if (register && (!confirm || password !== confirm)) next.confirm = 'ยืนยันรหัสผ่านให้ตรงกัน'
     setErrors(next)
@@ -94,8 +94,8 @@ export function AuthPage({ mode, initialEmail, onRegisterPreview, onLoginPreview
         const field: Field | undefined = code === 'username_already_exists' || code === 'invalid_username' ? 'username'
           : code === 'email_already_exists' ? 'email' : code === 'invalid_password_length' ? 'password' : undefined
         if (field) {
-          const message = field === 'username' ? (code === 'invalid_username' ? 'ใช้ a–z, 0–9 หรือ _ จำนวน 3–30 ตัวอักษร' : 'ชื่อผู้ใช้นี้ถูกใช้แล้ว')
-            : field === 'email' ? 'อีเมลนี้ถูกใช้แล้ว' : 'รหัสผ่านต้องมี 15–128 ตัวอักษร'
+          const message = field === 'username' ? (code === 'invalid_username' ? '' : 'ชื่อผู้ใช้นี้ถูกใช้แล้ว')
+            : field === 'email' ? 'อีเมลนี้ถูกใช้แล้ว' : 'รหัสผ่านต้องมี 8–128 ตัวอักษร'
           setErrors({ [field]: message })
           requestAnimationFrame(() => document.getElementById(`auth-${field}`)?.focus())
         } else {
@@ -127,21 +127,10 @@ export function AuthPage({ mode, initialEmail, onRegisterPreview, onLoginPreview
 
   return (
     <main className="auth-page">
-      <section className="auth-intro" aria-label="เกี่ยวกับ Rachata Plus">
-        <div className="rp-eyebrow" lang="en">Your next story starts here</div>
-        <p className="auth-intro-title">เรื่องราวดี ๆ<br />เริ่มที่นี่<span>.</span></p>
-        <p>พื้นที่ของเรื่องราวที่คุณชอบ<br />กลับมาดูต่อได้ในแบบของคุณ</p>
-        <div className="auth-art" aria-label="พื้นที่ภาพประกอบที่ยังว่าง">
-          <span>พื้นที่ภาพประกอบ</span>
-          <div className="auth-art-caption">RACHATA<span>+</span><small>เรื่องราวดี ๆ อยู่ที่นี่</small></div>
-        </div>
-      </section>
-
       <section className="auth-card" aria-labelledby="auth-heading">
         {complete ? (
           <div className="auth-complete">
             <span className="auth-complete-icon"><Icon name="check" /></span>
-            <div className="rp-eyebrow" lang="en">Ready for the next step</div>
             <h1 id="auth-heading" ref={successHeading} tabIndex={-1}>{apiAuthEnabled ? 'สร้างบัญชีสำเร็จแล้ว' : 'ลองสมัครเสร็จแล้ว'}</h1>
             <p>ข้อมูลของ <strong>{name.trim()}</strong> ผ่านการตรวจฟอร์มแล้ว</p>
             <p className="auth-email">{email.trim().toLowerCase()}</p>
@@ -151,14 +140,9 @@ export function AuthPage({ mode, initialEmail, onRegisterPreview, onLoginPreview
           </div>
         ) : (
           <>
-            <div className="rp-eyebrow" lang="en">{register ? 'Join Rachata Plus' : 'Welcome back'}</div>
             <h1 id="auth-heading">{register ? 'สร้างบัญชี' : 'เข้าสู่ระบบ'}</h1>
-            <p className="auth-subtitle">{register ? 'เริ่มต้นบัญชีของคุณในไม่กี่ขั้นตอน' : 'กลับมารับชมเรื่องราวที่คุณชอบ'}</p>
-            <p className="auth-demo">{apiAuthEnabled ? 'สมัครและเข้าสู่ระบบเพื่อบันทึกประวัติและรายการดูภายหลัง' : <>โหมดตัวอย่าง · ยังไม่เชื่อมระบบบัญชี<br />ใช้ข้อมูลสมมุติ รหัสผ่านจะไม่ถูกส่งหรือบันทึก</>}</p>
-
-            <p className="rp-demo-note">จำเป็นต้องกรอกทุกช่อง</p>
             <form noValidate onSubmit={submit} aria-busy={pending}>
-              {register && <div className="rp-field"><label htmlFor="auth-username">ชื่อผู้ใช้</label><input id="auth-username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={event => { setUsername(event.target.value); clearError('username') }} required disabled={pending} aria-invalid={Boolean(errors.username)} aria-describedby={errors.username ? 'auth-username-error' : 'auth-username-hint'} /><small id="auth-username-hint">a–z, 0–9 หรือ _ จำนวน 3–30 ตัวอักษร</small>{errors.username && <span className="auth-error" id="auth-username-error">{errors.username}</span>}</div>}
+              {register && <div className="rp-field"><label htmlFor="auth-username">ชื่อผู้ใช้</label><input id="auth-username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={event => { setUsername(event.target.value); clearError('username') }} required disabled={pending} aria-invalid={Boolean(errors.username)} aria-describedby={errors.username ? 'auth-username-error' : 'auth-username-hint'} /><small id="auth-username-hint"></small>{errors.username && <span className="auth-error" id="auth-username-error">{errors.username}</span>}</div>}
               {register && (
                 <div className="rp-field">
                   <label htmlFor="auth-name">ชื่อ–นามสกุล</label>
@@ -171,7 +155,7 @@ export function AuthPage({ mode, initialEmail, onRegisterPreview, onLoginPreview
                 <input id="auth-email" name="email" type="email" autoComplete={register ? "email" : "username"} inputMode="email" autoCapitalize="none" spellCheck={false} value={email} onChange={event => { setEmail(event.target.value); clearError('email') }} required disabled={pending} aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'auth-email-error' : undefined} placeholder="name@example.com" />
                 {errors.email && <span className="auth-error" id="auth-email-error">{errors.email}</span>}
               </div>
-              <PasswordField id="auth-password" label="รหัสผ่าน" value={password} onChange={value => { setPassword(value); clearError('password'); clearError('confirm') }} error={errors.password} hint={register ? '15–128 ตัวอักษร ใช้เป็นประโยคที่จำง่ายได้' : undefined} autoComplete={register ? 'new-password' : 'current-password'} disabled={pending} />
+              <PasswordField id="auth-password" label="รหัสผ่าน" value={password} onChange={value => { setPassword(value); clearError('password'); clearError('confirm') }} error={errors.password} hint={register ? '' : undefined} autoComplete={register ? 'new-password' : 'current-password'} disabled={pending} />
               {register && <PasswordField id="auth-confirm" label="ยืนยันรหัสผ่าน" value={confirm} onChange={value => { setConfirm(value); clearError('confirm') }} error={errors.confirm} autoComplete="new-password" disabled={pending} />}
               {Object.values(errors).some(Boolean) && <p className="rp-sr" role="alert">กรุณาตรวจช่องกรอกที่มีข้อความแจ้งเตือน</p>}
               <button type="submit" className="rp-mainbutton auth-submit" disabled={pending}>

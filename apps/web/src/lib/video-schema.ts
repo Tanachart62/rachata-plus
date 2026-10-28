@@ -21,11 +21,12 @@ export function readVideo(value: unknown): Video {
     )
       throw new ApiError('service_unavailable')
   }
-  if (value.coverUrl !== undefined && (typeof value.coverUrl !== 'string' || !/^\/api\/videos\/\d+\/cover$/.test(value.coverUrl))) throw new ApiError('service_unavailable')
+  if (value.coverUrl !== undefined && (typeof value.coverUrl !== 'string' || !/^\/api\/videos\/\d+\/cover(?:\?v=\d+)?$/.test(value.coverUrl))) throw new ApiError('service_unavailable')
   if (value.processingError !== undefined && typeof value.processingError !== 'string')
     throw new ApiError('service_unavailable')
   return {
     id: value.id,
+    metadataRevision: Number.isSafeInteger(value.metadataRevision) ? value.metadataRevision as number : 0,
     title: value.title,
     description: value.description,
     category: value.category,

@@ -29,7 +29,7 @@ func readMediaBudget() (mediaBudget, error) {
 			*target = n
 		}
 	}
-	if b.Job <= maxVideoBytes || b.Total < b.Job || b.Total > 1<<50 || b.MinFree > 1<<50 {
+	if b.Job <= 0 || b.Total < b.Job || b.Total > 1<<50 || b.MinFree > 1<<50 {
 		return b, fmt.Errorf("invalid media budget bounds")
 	}
 	return b, nil
@@ -94,6 +94,18 @@ func (s *videoService) reserveMedia(ctx context.Context, key string, upload bool
 	return s.reserveMediaOn(ctx, s.db, key, upload)
 }
 func (s *videoService) reserveMediaOn(ctx context.Context, db transactionBeginner, key string, upload bool) error {
+	if s.store != nil {
+		// S3 is shared storage; an API node's empty scratch disk cannot measure it.
+		// The single active worker reserves only its own local scratch capacity.
+		free, err := diskFree(s.root)
+		if err != nil {
+			return err
+		}
+		if free < s.budget.Job+s.budget.MinFree {
+			return errMediaBudget
+		}
+		return nil
+	}
 	if !storageKeyPattern.MatchString(key) {
 		return fmt.Errorf("invalid storage key")
 	}
@@ -176,6 +188,9 @@ func (s *videoService) settleMedia(key string) {
 	_ = s.settleMediaOn(ctx, s.db, key)
 }
 func (s *videoService) settleMediaOn(ctx context.Context, conn rowExecutor, key string) error {
+	if s.store != nil {
+		return nil
+	}
 	size, err := directoryBytes(ctx, filepath.Join(s.root, key), nil)
 	if err != nil {
 		return err
@@ -191,6 +206,9 @@ func (s *videoService) cleanAbandonedUploads(ctx context.Context, conn rowExecut
 	defer cancel()
 	if _, err := conn.Exec(query, `DELETE FROM playback_leases WHERE token_hash IN (SELECT token_hash FROM playback_leases WHERE expires_at<=NOW() ORDER BY expires_at LIMIT 1000) AND expires_at<=NOW()`); err != nil {
 		return err
+	}
+	if s.store != nil {
+		return s.cleanDirectUploads(ctx, conn)
 	}
 	rows, err := conn.Query(query, `SELECT storage_key FROM media_reservations r WHERE lease_until<NOW() AND NOT EXISTS(SELECT 1 FROM videos v WHERE v.storage_key=r.storage_key) LIMIT 10`)
 	if err != nil {

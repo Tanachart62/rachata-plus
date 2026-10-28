@@ -65,15 +65,8 @@ export function PlansPage({ viewer, activePlan, loading, video, onActivate, user
         {video ? 'กลับหน้ารายละเอียด' : 'ย้อนกลับ'}
       </a>
       <div className="plans-heading">
-        <div className="rp-eyebrow" lang="en">
-          Rachata Plus · Membership
-        </div>
         <h1>เลือกแพ็กเกจที่ใช่สำหรับคุณ</h1>
-        <p>
-          {video
-            ? `อยากดู “${video.title}” แบบเต็มเรื่อง? เลือกแพ็กเกจเพื่อรับชมต่อ`
-            : 'บัญชีฟรีดูรายละเอียดและตัวอย่างได้ อัปเกรดเพื่อปลดล็อกวิดีโอเต็มทุกเรื่อง'}
-        </p>
+        {!video && <p>บัญชีฟรีดูรายละเอียดและตัวอย่างได้ อัปเกรดเพื่อปลดล็อกวิดีโอเต็มทุกเรื่อง</p>}
         <span className="plans-status">
           {apiAuthEnabled && (viewer === 'member' || viewer === 'admin')
             ? viewer === 'admin' && activePlan === 'free' ? 'สิทธิ์ปัจจุบัน: ผู้ดูแลระบบ' : `แพ็กเกจปัจจุบัน: ${current.name}`
@@ -83,7 +76,7 @@ export function PlansPage({ viewer, activePlan, loading, video, onActivate, user
         </span>
       </div>
 
-      <p className="plans-note">{apiAuthEnabled ? 'Basic สูงสุด 1080p / 2 จอ, Standard สูงสุด 1440p (2K) / 2 จอ, Premium สูงสุด 2160p (4K) / 4 จอ ตามความละเอียดที่ต้นฉบับมี จอที่เปิดเครื่องเล่นจะใช้สิทธิ์หนึ่งจอ ปิดหน้ารับชมเพื่อคืนสิทธิ์ หากขาดการเชื่อมต่อจะคืนภายใน 90 วินาที ไม่มีการเรียกเก็บเงินจริง' : 'โหมดทดลอง UI แสดงแพ็กเกจตัวอย่าง ไม่ได้บังคับความละเอียดหรือจำนวนจอและไม่มีการเรียกเก็บเงินจริง'}</p>
+      <p className="plans-note">{apiAuthEnabled ? 'Basic สูงสุด 1080p / 2 จอ, Standard สูงสุด 1440p (2K) / 2 จอ, Premium สูงสุด 2160p (4K) / 4 จอ ตามความละเอียดที่ต้นฉบับมี จอที่เปิดเครื่องเล่นจะใช้สิทธิ์หนึ่งจอ ปิดหน้ารับชมเพื่อคืนสิทธิ์' : 'โหมดทดลอง UI แสดงแพ็กเกจตัวอย่าง ไม่ได้บังคับความละเอียดหรือจำนวนจอ'}</p>
 
       {loading ? (
         <div className="plans-grid" aria-label="กำลังโหลดแพ็กเกจ">
@@ -93,7 +86,6 @@ export function PlansPage({ viewer, activePlan, loading, video, onActivate, user
         </div>
       ) : review ? (
         <section className="plans-review">
-          <div className="rp-eyebrow">ยืนยันชำระเงิน</div>
           <h2 ref={reviewHeading} tabIndex={-1}>
             แพ็กเกจ {plan.name}
           </h2>
@@ -168,7 +160,7 @@ export function PlansPage({ viewer, activePlan, loading, video, onActivate, user
             <div aria-live="polite">
               <span className="plan-label">แพ็กเกจที่เลือก</span>
               <h2>{plan.name}</h2>
-              <p>{eligible ? 'อัปเกรดได้เท่านั้น · ยืนยันชำระเงิน ไม่มีการหักเงินจริง' : viewer === 'admin' ? 'ผู้ดูแลระบบมีสิทธิ์รับชมอยู่แล้ว' : 'คุณใช้แพ็กเกจสูงสุดแล้ว'}</p>
+              <p>{eligible ? '' : viewer === 'admin' ? 'ผู้ดูแลระบบมีสิทธิ์รับชมอยู่แล้ว' : 'คุณใช้แพ็กเกจสูงสุดแล้ว'}</p>
             </div>
             <button
               type="button"

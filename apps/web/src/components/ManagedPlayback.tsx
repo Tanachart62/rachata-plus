@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, isObject, jsonRequest } from '../lib/http'
 import { HlsPlayer } from './HlsPlayer'
+import type { Video } from '../types'
 
 type Lease = { token: string; url: string; maxHeight: number }
 function message(error: unknown) {
@@ -16,9 +17,11 @@ function message(error: unknown) {
 
 // A slot belongs to one open player, not to an entire logged-in device.
 // Release on navigation; crashed/offline clients expire after 90 seconds.
-export function ManagedPlayback({ videoId, userId, src, title, initialPosition, onProgress }: {
+export function ManagedPlayback({ videoId, userId, src, title, initialPosition, durationSeconds, onProgress, recommendations }: {
   videoId: number; userId: number; src: string; title: string; initialPosition: number
+  durationSeconds: number
   onProgress: (seconds: number, flush?: boolean) => Promise<void>
+  recommendations?: Video[]
 }) {
   const [lease, setLease] = useState<(Lease & { source: string; position: number }) | null>(null)
   const [error, setError] = useState('')
@@ -87,7 +90,7 @@ export function ManagedPlayback({ videoId, userId, src, title, initialPosition, 
     }
   }, [videoId, userId, src, attempt])
   return lease?.source === src ? (
-    <HlsPlayer src={lease.url} title={title} initialPosition={lease.position} onProgress={(seconds, flush) => {
+    <HlsPlayer src={lease.url} title={title} initialPosition={lease.position} durationSeconds={durationSeconds} recommendations={recommendations} onProgress={(seconds, flush) => {
       position.current = seconds
       return onProgress(seconds, flush)
     }} />

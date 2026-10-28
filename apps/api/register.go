@@ -66,10 +66,10 @@ func registerHandler(db *pgxpool.Pool) gin.HandlerFunc {
 		}
 
 		passwordLength := utf8.RuneCountInString(req.Password)
-		if passwordLength < 15 || passwordLength > 128 {
+		if passwordLength < 8 || passwordLength > 128 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "invalid_password_length",
-				"message": "Password must contain 15-128 Unicode code points.",
+				"message": "Password must contain 8-128 Unicode code points.",
 			})
 			return
 		}

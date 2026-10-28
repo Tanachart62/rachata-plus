@@ -67,7 +67,7 @@ func (a *authConfig) library(db *pgxpool.Pool) gin.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
-		rows, err := db.Query(ctx, `SELECT w.video_id,w.created_at,v.id,v.title,v.description,v.category,v.duration_seconds,v.publication_status,v.status,v.processing_error,v.has_cover FROM watchlist w JOIN videos v ON v.id=w.video_id
+		rows, err := db.Query(ctx, `SELECT w.video_id,w.created_at,`+qualifiedVideoColumns+` FROM watchlist w JOIN videos v ON v.id=w.video_id
  WHERE w.user_id=$1 AND v.deleted_at IS NULL AND (v.publication_status='published' OR $2) AND (w.created_at,w.video_id)<($3,$4)
  ORDER BY w.created_at DESC,w.video_id DESC LIMIT $5`, u.ID, u.Role == "admin", sc.At, sc.ID, libraryPageSize+1)
 		if err != nil {
@@ -102,7 +102,7 @@ func (a *authConfig) library(db *pgxpool.Pool) gin.HandlerFunc {
 			accountFailure(c, err)
 			return
 		}
-		rows, err = db.Query(ctx, `SELECT h.video_id,h.position_seconds,h.watched_at,h.revision,v.id,v.title,v.description,v.category,v.duration_seconds,v.publication_status,v.status,v.processing_error,v.has_cover FROM watch_history h JOIN videos v ON v.id=h.video_id
+		rows, err = db.Query(ctx, `SELECT h.video_id,h.position_seconds,h.watched_at,h.revision,`+qualifiedVideoColumns+` FROM watch_history h JOIN videos v ON v.id=h.video_id
  WHERE h.user_id=$1 AND v.deleted_at IS NULL AND (v.publication_status='published' OR $2) AND (h.watched_at,h.video_id)<($3,$4)
  ORDER BY h.watched_at DESC,h.video_id DESC LIMIT $5`, u.ID, u.Role == "admin", hc.At, hc.ID, libraryPageSize+1)
 		if err != nil {

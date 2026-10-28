@@ -42,6 +42,8 @@ export function WatchPage({
   const [quality, setQuality] = useState('auto')
   const locked = viewer === 'guest' || viewer === 'user'
   const atEnd = position >= video.durationSeconds
+  const recommendations = videos.filter(item => item.id !== video.id && item.publicationStatus === 'published' && item.processingStatus === 'ready')
+    .sort((a, b) => Number(b.category === video.category) - Number(a.category === video.category)).slice(0, 4)
   useEffect(() => {
     if (video.playbackUrl || !playing || locked || loading || atEnd) return
     const timer = window.setInterval(
@@ -100,7 +102,9 @@ export function WatchPage({
             userId={userId}
             src={video.playbackUrl}
             title={video.title}
-            initialPosition={initialPosition}
+            initialPosition={initialPosition >= video.durationSeconds ? 0 : initialPosition}
+            durationSeconds={video.durationSeconds}
+            recommendations={recommendations}
             onProgress={(seconds, flush) => onProgress(video.id, seconds, flush)}
           />
         ) : video.processingStatus ? (

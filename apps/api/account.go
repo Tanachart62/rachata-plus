@@ -31,7 +31,7 @@ func readSessionUser(ctx context.Context, db rowQuerier, hash []byte) (accountRe
 	var u accountResponse
 	err := db.QueryRow(ctx, `SELECT u.id,u.username,u.name,u.email,u.role,`+membershipColumns+
 		` FROM sessions t JOIN users u ON u.id=t.user_id `+membershipJoin+` WHERE t.token_hash=$1 AND t.expires_at>NOW() AND u.account_status='active'`, hash).
-		Scan(&u.ID, &u.Username, &u.Name, &u.Email, &u.Role, &u.Member, &u.Plan, &u.ExpiresAt, &u.MembershipRevision, &u.AccountStatus)
+		Scan(&u.ID, &u.Username, &u.Name, &u.Email, &u.Role, &u.Member, &u.Plan, &u.ExpiresAt, &u.MembershipRevision, &u.AccountStatus, &u.AdminLevel)
 	return u, err
 }
 
@@ -208,7 +208,7 @@ func (a *authConfig) changePassword(db *pgxpool.Pool) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "invalid_request"})
 			return
 		}
-		if n := utf8.RuneCountInString(req.Next); n < 15 || n > 128 {
+		if n := utf8.RuneCountInString(req.Next); n < 8 || n > 128 {
 			c.JSON(400, gin.H{"error": "invalid_password_length"})
 			return
 		}

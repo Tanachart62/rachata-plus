@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -94,7 +95,22 @@ func run() error {
 
 	dbURL.RawQuery = query.Encode()
 
-	db, err := pgxpool.New(context.Background(), dbURL.String())
+	poolConfig, err := pgxpool.ParseConfig(dbURL.String())
+	if err != nil {
+		return fmt.Errorf("invalid database configuration")
+	}
+	poolConfig.MaxConns = 10
+	poolConfig.MinConns = 0
+	poolConfig.MaxConnLifetime = 30 * time.Minute
+	poolConfig.MaxConnLifetimeJitter = 5 * time.Minute
+	if value := os.Getenv("DB_MAX_CONNS"); value != "" {
+		n, e := strconv.Atoi(value)
+		if e != nil || n < 2 || n > 100 {
+			return fmt.Errorf("DB_MAX_CONNS must be 2..100")
+		}
+		poolConfig.MaxConns = int32(n)
+	}
+	db, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		return fmt.Errorf("cannot initialize database pool: check configuration and CA file")
 	}
@@ -103,6 +119,13 @@ func run() error {
 	defer stop()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if len(os.Args) >= 2 && os.Args[1] == "import-media" {
+		apply := len(os.Args) == 3 && os.Args[2] == "--apply"
+		if len(os.Args) > 3 || (len(os.Args) == 3 && !apply) {
+			return fmt.Errorf("usage: rachata import-media [--apply]")
+		}
+		return importMedia(ctx, db, apply)
+	}
 
 	router := gin.New()
 	// Playback permits are query parameters; never include them in access logs.
@@ -131,6 +154,13 @@ func run() error {
 			return err
 		}
 		accounts := router.Group("/auth")
+		if os.Getenv("APP_ENV") == "production" {
+			accounts.Use(auth.sharedWriteLimit(db))
+		}
+		auth.store, err = newObjectStorage(ctx)
+		if err != nil {
+			return err
+		}
 		accounts.Use(auth.protectWrites())
 		accounts.POST("/register", registerHandler(db))
 		accounts.POST("/login", auth.loginHandler(db))
@@ -144,6 +174,14 @@ func run() error {
 			return err
 		}
 		videos.nginxDelivery = runtime.delivery == "nginx"
+		if videos.store != nil {
+			check, stop := context.WithTimeout(ctx, 10*time.Second)
+			_, err = db.Exec(check, `SELECT cover_s3_key FROM videos LIMIT 0; SELECT avatar_s3_key FROM users LIMIT 0; SELECT id FROM direct_uploads LIMIT 0; SELECT hits FROM request_limits LIMIT 0`)
+			stop()
+			if err != nil {
+				return fmt.Errorf("AWS storage requires migration 015 and a reachable database")
+			}
+		}
 		if runtime.mode == "api" {
 			videos.routes(router)
 		}

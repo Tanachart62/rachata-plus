@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type Hls from 'hls.js'
 import { PlaybackControls } from './PlaybackControls'
+import type { Video } from '../types'
 
 function qualityLabel(height: number) {
   return height === 1440 ? '1440p (2K)' : height === 2160 ? '2160p (4K)' : height ? `${height}p` : 'คุณภาพต้นฉบับ'
@@ -10,12 +11,16 @@ export function HlsPlayer({
   src,
   title,
   initialPosition = 0,
+  durationSeconds = 0,
   onProgress,
+  recommendations = [],
 }: {
   src: string
   title: string
   initialPosition?: number
+  durationSeconds?: number
   onProgress?: (seconds: number, flush?: boolean) => Promise<void>
+  recommendations?: Video[]
 }) {
   const qualityId = useId()
   const qualityHintId = useId()
@@ -25,17 +30,23 @@ export function HlsPlayer({
   const nativeResume = useRef<{ position: number; playing: boolean } | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef(onProgress)
+  const durationRef = useRef(durationSeconds)
   const resume = useRef({ src, position: initialPosition })
   const acknowledged = useRef(-1)
   const requestSequence = useRef(0)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+  const [finished, setFinished] = useState(false)
+  const finishedHeading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { if (finished) finishedHeading.current?.focus({ preventScroll: true }) }, [finished])
   useEffect(() => {
     progressRef.current = onProgress
-  }, [onProgress])
+    durationRef.current = durationSeconds
+  }, [onProgress, durationSeconds])
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
+    setFinished(false)
     if (resume.current.src !== src) {
       resume.current = { src, position: initialPosition }
       acknowledged.current = -1
@@ -58,11 +69,14 @@ export function HlsPlayer({
       if (!disposed)
         setError('เล่นวิดีโอไม่ได้ กรุณาตรวจสิทธิ์สมาชิกหรือเข้าสู่ระบบใหม่ แล้วลองอีกครั้ง')
     }
-    const report = (flush = false, ended = false) => {
+    const report = (flush = false) => {
       if (!played || !Number.isFinite(video.currentTime)) return
-      if (!broken) resume.current.position = ended ? 0 : video.currentTime
-      const seconds = ended
-        ? Math.ceil(video.duration)
+      // Pause, pagehide and cleanup may run after ended. Keep those final
+      // saves at the catalog duration instead of rounding them down again.
+      const completed = !broken && video.ended
+      if (!broken) resume.current.position = completed ? 0 : video.currentTime
+      const seconds = completed
+        ? Math.max(Math.ceil(video.duration), durationRef.current)
         : Math.floor(broken ? resume.current.position : video.currentTime)
       const now = Date.now()
       if (
@@ -87,12 +101,13 @@ export function HlsPlayer({
         })
     }
     const playing = () => {
+      setFinished(false)
       played = true
       report()
     }
     const progress = () => report()
     const flush = () => report(true)
-    const ended = () => report(true, true)
+    const ended = () => { report(true); if (!disposed && !broken) setFinished(true) }
     const hidden = () => {
       if (document.visibilityState === 'hidden') flush()
     }
@@ -180,6 +195,7 @@ export function HlsPlayer({
       <div className="rp-hls-stage">
         <video
           ref={videoRef}
+          onSeeked={event => { if (!event.currentTarget.ended) setFinished(false) }}
           tabIndex={0}
           onKeyDown={event => {
             const video = event.currentTarget
@@ -191,6 +207,15 @@ export function HlsPlayer({
           aria-label={title}
           style={{ width: '100%', aspectRatio: '16 / 9', display: 'block', background: '#000' }}
         />
+        {finished && !error && <section className="rp-end-screen" aria-labelledby={`${qualityId}-finished`}>
+          <div className="rp-end-heading"><div><h2 id={`${qualityId}-finished`} ref={finishedHeading} tabIndex={-1}>ดูจบแล้ว</h2><p>{recommendations.length ? 'เลือกวิดีโอเรื่องถัดไป' : 'ยังไม่มีวิดีโอเรื่องอื่นที่พร้อมรับชม'}</p></div>
+            <button type="button" className="rp-softbutton" onClick={() => { const video = videoRef.current; if (video) { video.currentTime = 0; setFinished(false); void video.play().catch(() => setError('เริ่มเล่นไม่ได้ กรุณาลองอีกครั้ง')) } }}>เล่นอีกครั้ง</button>
+          </div>
+          <div className="rp-end-grid">{recommendations.map(video => <a key={video.id} href={`#/watch/${video.id}`} className="rp-end-card">
+            <span className="rp-end-cover">{video.coverUrl ? <img src={video.coverUrl} alt="" loading="lazy" /> : <span>รับชมวิดีโอ</span>}</span>
+            <strong>{video.title}</strong><small>{video.category}</small>
+          </a>)}</div>
+        </section>}
         <PlaybackControls videoRef={videoRef} playerRef={playerRef} quality={qualityMenu} />
       </div>
       <p className={error ? 'auth-error' : 'rp-sr'} role="status">

@@ -61,6 +61,7 @@ services:
       - ./db/migrations/allow_video_reprocessing.sql:/docker-entrypoint-initdb.d/011-reprocessing.sql:ro
       - ./db/migrations/add_profile_avatars.sql:/docker-entrypoint-initdb.d/012-avatars.sql:ro
       - ./db/migrations/add_playback_leases_and_generations.sql:/docker-entrypoint-initdb.d/013-playback.sql:ro
+      - ./db/migrations/add_admin_controls_and_video_edits.sql:/docker-entrypoint-initdb.d/014-admin-controls.sql:ro
     logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
   storage-init:
     image: rachata-plus-api:local

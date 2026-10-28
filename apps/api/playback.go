@@ -9,7 +9,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -321,7 +320,7 @@ func filteredPlaylist(data []byte, maxHeight int, token string) ([]byte, error) 
 
 var regexpResolution = regexp.MustCompile(`RESOLUTION=([0-9]+)x([0-9]+)(?:,|$)`)
 
-func servePlaylist(c *gin.Context, file *os.File, maxHeight int, token string) {
+func servePlaylist(c *gin.Context, file io.Reader, maxHeight int, token string) {
 	data, err := io.ReadAll(io.LimitReader(file, 1<<20+1))
 	if err != nil || len(data) > 1<<20 {
 		c.Status(503)

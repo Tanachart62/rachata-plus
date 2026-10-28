@@ -1,7 +1,9 @@
 import type { Video } from '../types'
 
-export function Icon({ name }: { name: 'play' | 'pause' | 'plus' | 'check' | 'back' | 'upload' | 'user' | 'close' | 'volume' | 'muted' | 'search' }) {
+export function Icon({ name }: { name: 'play' | 'pause' | 'plus' | 'check' | 'back' | 'upload' | 'user' | 'close' | 'volume' | 'muted' | 'search' | 'eye' | 'eye-off' }) {
   const shapes = {
+    eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></>,
+    'eye-off': <><path d="m3 3 18 18M10.6 5.1 12 5c6.5 0 10 7 10 7a20 20 0 0 1-3 3.9M6.2 6.2A23 23 0 0 0 2 12s3.5 7 10 7a13 13 0 0 0 5.8-1.4M9.9 9.9a3 3 0 0 0 4.2 4.2" /></>,
     search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></>,
     play: <path d="m8 5 11 7-11 7Z" />,
     pause: <><path d="M8 5v14M16 5v14" /></>,
@@ -39,5 +41,5 @@ export function SaveButton({ saved, onToggle }: { saved: boolean; onToggle: () =
 }
 
 export function MessagePage({ title, message, actionHref = '#/', actionLabel = 'กลับหน้าแรก' }: { title: string; message: string; actionHref?: string; actionLabel?: string }) {
-  return <main className="rp-login"><div className="rp-eyebrow" lang="en">Rachata Plus</div><h1>{title}</h1><p>{message}</p><a className="rp-mainbutton rp-linkbutton" href={actionHref}>{actionLabel}</a></main>
+  return <main className="rp-login"><h1>{title}</h1><p>{message}</p><a className="rp-mainbutton rp-linkbutton" href={actionHref}>{actionLabel}</a></main>
 }

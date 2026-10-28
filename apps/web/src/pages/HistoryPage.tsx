@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Icon, Skeleton, VideoGrid } from '../components/UI'
 import type { Video, WatchHistoryEntry } from '../types'
-import { apiAuthEnabled } from '../lib/auth'
 
 export function HistoryPage({
   history,
@@ -35,9 +34,6 @@ export function HistoryPage({
   return (
     <main className="rp-page history-page">
       <div className="rp-page-heading">
-        <div className="rp-eyebrow" lang="en">
-          Pick up where you left off
-        </div>
         <h1>ประวัติและดูภายหลัง</h1>
         <p>กลับไปดูเรื่องราวที่ค้างไว้ หรือเลือกวิดีโอที่บันทึกไว้ดูภายหลัง</p>
       </div>
@@ -154,12 +150,6 @@ export function HistoryPage({
           </a>
         </section>
       )}
-      <p className="rp-demo-note">
-        {apiAuthEnabled
-          ? 'ประวัติและดูภายหลังบันทึกแยกตามบัญชี ใช้ได้หลังรีเฟรชหรือเข้าสู่ระบบจากอุปกรณ์อื่น'
-          : 'ประวัติและดูภายหลังในโหมดจำลองจะหายเมื่อรีเฟรช'}{' '}
-        · แสดงเฉพาะวิดีโอที่ยังเผยแพร่
-      </p>
     </main>
   )
 }

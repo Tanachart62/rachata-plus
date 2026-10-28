@@ -123,7 +123,7 @@ func (s *videoService) processOwnedJob(ctx context.Context, conn *pgxpool.Conn, 
 	if err != nil {
 		return 0, err, !conn.Conn().IsClosed()
 	}
-	job, stop := context.WithTimeout(ctx, 45*time.Minute)
+	job, stop := context.WithTimeout(ctx, s.jobTimeout)
 	defer stop()
 	// Create only this generation before starting codecs. Codecs cannot recreate
 	// a deleted video's parent directory after another owner cleans its tombstone.
@@ -131,6 +131,13 @@ func (s *videoService) processOwnedJob(ctx context.Context, conn *pgxpool.Conn, 
 		return 0, fmt.Errorf("invalid storage key"), true
 	}
 	jobs := filepath.Join(s.root, key, "jobs")
+	if s.store != nil {
+		if err = os.MkdirAll(filepath.Join(s.root, key), 0700); err != nil {
+			return 0, err, true
+		}
+		// Only this worker owns this scratch directory. S3 remains authoritative.
+		defer os.RemoveAll(filepath.Join(s.root, key))
+	}
 	if err = os.Mkdir(jobs, 0700); err != nil && !os.IsExist(err) {
 		return 0, err, true
 	}
@@ -166,7 +173,21 @@ func (s *videoService) processOwnedJob(ctx context.Context, conn *pgxpool.Conn, 
 		err      error
 	}
 	finished := make(chan result, 1)
-	go func() { d, e := s.transcodeGeneration(job, key, generation); finished <- result{d, e} }()
+	go func() {
+		if s.store != nil {
+			source := filepath.Join(s.root, key, "source")
+			_ = os.Remove(source)
+			if e := s.store.download(job, key+"/source", source, s.budget.Job); e != nil {
+				finished <- result{0, e}
+				return
+			}
+		}
+		d, e := s.transcodeGeneration(job, key, generation)
+		if e == nil && s.store != nil {
+			e = s.store.uploadTree(job, output, filepath.ToSlash(hlsDirectory(key, generation)))
+		}
+		finished <- result{d, e}
+	}()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -222,6 +243,21 @@ func (s *videoService) cleanDeleted(ctx context.Context, conn rowExecutor) error
 		return err
 	}
 	for _, v := range items {
+		if s.store != nil {
+			if !storageKeyPattern.MatchString(v.key) {
+				continue
+			}
+			if err = s.store.deletePrefix(ctx, v.key); err != nil {
+				return err
+			}
+			if err = os.RemoveAll(filepath.Join(s.root, v.key)); err != nil {
+				return err
+			}
+			if _, err = conn.Exec(ctx, `UPDATE videos SET storage_key=NULL,cover_s3_key=NULL WHERE id=$1 AND deleted_at IS NOT NULL AND status<>'processing'`, v.id); err != nil {
+				return err
+			}
+			continue
+		}
 		if storageKeyPattern.MatchString(v.key) && os.RemoveAll(filepath.Join(s.root, v.key)) == nil {
 			if _, err = conn.Exec(ctx, `UPDATE videos SET storage_key=NULL WHERE id=$1 AND deleted_at IS NOT NULL AND status<>'processing'`, v.id); err != nil {
 				return err

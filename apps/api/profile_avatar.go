@@ -64,6 +64,10 @@ func (a *authConfig) profileAvatar(db *pgxpool.Pool) gin.HandlerFunc {
 		if !checkOwner(c, u, id) {
 			return
 		}
+		if a.store != nil {
+			a.s3Avatar(c, db, id)
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
 		var data []byte
@@ -119,6 +123,10 @@ func (a *authConfig) uploadAvatar(db *pgxpool.Pool) gin.HandlerFunc {
 		data, err := avatarJPEG(file)
 		if err != nil {
 			c.JSON(400, gin.H{"error": "invalid_avatar"})
+			return
+		}
+		if a.store != nil {
+			a.saveS3Avatar(c, db, id, data)
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)

@@ -59,6 +59,9 @@ func readRuntimeConfig() (runtimeConfig, error) {
 			}
 		}
 	case "production":
+		if os.Getenv("MEDIA_BACKEND") != "s3" || r.delivery != "direct" || os.Getenv("DB_SSLMODE") != "verify-full" {
+			return r, fmt.Errorf("production requires MEDIA_BACKEND=s3, MEDIA_DELIVERY=direct and DB_SSLMODE=verify-full")
+		}
 		// Validate HTTPS/cookie settings even in the separate worker process.
 		if os.Getenv("COOKIE_SECURE") != "true" {
 			return r, fmt.Errorf("production requires COOKIE_SECURE=true and HTTPS")
@@ -66,8 +69,8 @@ func readRuntimeConfig() (runtimeConfig, error) {
 		if _, err := newAuthConfig(os.Getenv("AUTH_ORIGIN"), "true"); err != nil {
 			return r, err
 		}
-		if r.worker != "external" || r.delivery != "nginx" {
-			return r, fmt.Errorf("production requires external worker and nginx media delivery")
+		if r.worker != "external" {
+			return r, fmt.Errorf("production requires external worker")
 		}
 	default:
 		return r, fmt.Errorf("APP_ENV must be local or production")

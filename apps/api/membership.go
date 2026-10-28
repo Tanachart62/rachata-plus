@@ -18,18 +18,20 @@ const membershipJoin = ` LEFT JOIN LATERAL (
  SELECT plan, expires_at FROM subscriptions WHERE user_id=u.id AND status='active'
  AND starts_at<=NOW() AND expires_at>NOW() ORDER BY expires_at DESC,id DESC LIMIT 1
 ) m ON true `
-const membershipColumns = `m.expires_at IS NOT NULL,COALESCE(m.plan,''),COALESCE((EXTRACT(EPOCH FROM m.expires_at)*1000)::bigint,0),u.membership_revision,u.account_status`
+const membershipColumns = `m.expires_at IS NOT NULL,COALESCE(m.plan,''),COALESCE((EXTRACT(EPOCH FROM m.expires_at)*1000)::bigint,0),u.membership_revision,u.account_status,u.admin_level`
 
 func readMembershipAccount(ctx context.Context, db rowQuerier, id int64) (accountResponse, error) {
 	var u accountResponse
 	err := db.QueryRow(ctx, `SELECT u.id,u.username,u.name,u.email,u.role,`+membershipColumns+
 		` FROM users u `+membershipJoin+` WHERE u.id=$1`, id).
-		Scan(&u.ID, &u.Username, &u.Name, &u.Email, &u.Role, &u.Member, &u.Plan, &u.ExpiresAt, &u.MembershipRevision, &u.AccountStatus)
+		Scan(&u.ID, &u.Username, &u.Name, &u.Email, &u.Role, &u.Member, &u.Plan, &u.ExpiresAt, &u.MembershipRevision, &u.AccountStatus, &u.AdminLevel)
 	return u, err
 }
 
 func (a *authConfig) membershipRoutes(g *gin.RouterGroup, db *pgxpool.Pool) {
+	g.GET("/admin/dashboard", dashboardHandler(db))
 	g.POST("/membership/demo-checkout", a.demoCheckout(db))
+	g.POST("/admin/accounts/:id/control", a.controlAccount(db))
 	g.GET("/admin/memberships/:id/sessions", a.listSessions(db, false))
 	g.GET("/admin/memberships/accounts", a.listMembershipAccounts(db))
 	g.GET("/admin/memberships", a.findMembership(db))
@@ -59,7 +61,7 @@ func (a *authConfig) listMembershipAccounts(db *pgxpool.Pool) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
 		rows, err := db.Query(ctx, `SELECT u.id,u.username,u.name,u.email,u.role,`+membershipColumns+
-			` FROM users u `+membershipJoin+` WHERE u.id>$1 AND ($2='' OR
+			` FROM users u `+membershipJoin+` WHERE u.account_status<>'deleted' AND u.id>$1 AND ($2='' OR
 			 strpos(lower(u.name || ' ' || u.username || ' ' || u.email),$2)>0) ORDER BY u.id LIMIT 51`, cursor, query)
 		if err != nil {
 			accountFailure(c, err)
@@ -69,7 +71,7 @@ func (a *authConfig) listMembershipAccounts(db *pgxpool.Pool) gin.HandlerFunc {
 		users := make([]accountResponse, 0)
 		for rows.Next() {
 			var u accountResponse
-			if err = rows.Scan(&u.ID, &u.Username, &u.Name, &u.Email, &u.Role, &u.Member, &u.Plan, &u.ExpiresAt, &u.MembershipRevision, &u.AccountStatus); err != nil {
+			if err = rows.Scan(&u.ID, &u.Username, &u.Name, &u.Email, &u.Role, &u.Member, &u.Plan, &u.ExpiresAt, &u.MembershipRevision, &u.AccountStatus, &u.AdminLevel); err != nil {
 				accountFailure(c, err)
 				return
 			}
@@ -106,7 +108,7 @@ func (a *authConfig) findMembership(db *pgxpool.Pool) gin.HandlerFunc {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()
 		var id int64
-		err := db.QueryRow(ctx, `SELECT id FROM users WHERE lower(trim(email))=$1`, email).Scan(&id)
+		err := db.QueryRow(ctx, `SELECT id FROM users WHERE lower(trim(email))=$1 AND account_status<>'deleted'`, email).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.JSON(404, gin.H{"error": "user_not_found"})
 			return
@@ -245,6 +247,15 @@ func (a *authConfig) manageMembership(db *pgxpool.Pool) gin.HandlerFunc {
 		target, err := readMembershipAccount(ctx, tx, id)
 		if err != nil {
 			accountFailure(c, err)
+			return
+		}
+		if target.AccountStatus == "deleted" {
+			c.JSON(404, gin.H{"error": "user_not_found"})
+			return
+		}
+		ownSession := id == fresh.ID && (req.Action == "logout_all" || req.Action == "logout_session")
+		if fresh.AdminLevel != "owner" && target.Role == "admin" && !ownSession {
+			c.JSON(403, gin.H{"error": "owner_required"})
 			return
 		}
 		if target.MembershipRevision != *req.Revision {

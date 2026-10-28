@@ -1,0 +1,1183 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Rachata Plus Learner Lab: ALB, private web ASG, one worker ASG, two NAT gateways, RDS PostgreSQL Multi-AZ, private S3. Creates billable resources; review budget before deployment.",
+  "Parameters": {
+    "AmiId": {
+      "Type": "AWS::EC2::Image::Id",
+      "Description": "Prepared Amazon Linux 2023 x86_64 AMI; run prepare-ami.sh first"
+    },
+    "CertificateArn": {
+      "Type": "String",
+      "AllowedPattern": "arn:aws:acm:(us-east-1|us-west-2):[0-9]{12}:certificate/[a-f0-9-]+"
+    },
+    "Origin": {
+      "Type": "String",
+      "AllowedPattern": "https://[a-zA-Z0-9.-]+",
+      "Description": "HTTPS origin without trailing slash"
+    },
+    "ArtifactBucket": {
+      "Type": "String",
+      "AllowedPattern": "[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]"
+    },
+    "ReleaseKey": {
+      "Type": "String",
+      "AllowedPattern": "[A-Za-z0-9/_.-]+"
+    },
+    "ReleaseSha256": {
+      "Type": "String",
+      "AllowedPattern": "[a-f0-9]{64}"
+    },
+    "WebInstanceType": {
+      "Type": "String",
+      "Default": "t3.medium",
+      "AllowedValues": [
+        "t3.small",
+        "t3.medium",
+        "t3.large"
+      ]
+    },
+    "WorkerInstanceType": {
+      "Type": "String",
+      "Default": "t3.large",
+      "AllowedValues": [
+        "t3.medium",
+        "t3.large"
+      ]
+    },
+    "DBInstanceClass": {
+      "Type": "String",
+      "Default": "db.t3.small",
+      "AllowedValues": [
+        "db.t3.micro",
+        "db.t3.small",
+        "db.t3.medium",
+        "db.t4g.micro",
+        "db.t4g.small",
+        "db.t4g.medium"
+      ]
+    },
+    "WebMin": {
+      "Type": "Number",
+      "Default": 2,
+      "MinValue": 2,
+      "MaxValue": 3
+    },
+    "WebDesired": {
+      "Type": "Number",
+      "Default": 2,
+      "MinValue": 2,
+      "MaxValue": 3
+    },
+    "WebMax": {
+      "Type": "Number",
+      "Default": 3,
+      "MinValue": 2,
+      "MaxValue": 4
+    },
+    "InstanceProfile": {
+      "Type": "String",
+      "Default": "LabInstanceProfile",
+      "AllowedPattern": "[A-Za-z0-9+=,.@_-]+"
+    },
+    "ApiImage": {
+      "Type": "String",
+      "AllowedPattern": "[0-9]{12}\\.dkr\\.ecr\\.(us-east-1|us-west-2)\\.amazonaws\\.com/[a-z0-9_./-]+@sha256:[a-f0-9]{64}"
+    },
+    "WebImage": {
+      "Type": "String",
+      "AllowedPattern": "[0-9]{12}\\.dkr\\.ecr\\.(us-east-1|us-west-2)\\.amazonaws\\.com/[a-z0-9_./-]+@sha256:[a-f0-9]{64}"
+    },
+    "WorkerImage": {
+      "Type": "String",
+      "AllowedPattern": "[0-9]{12}\\.dkr\\.ecr\\.(us-east-1|us-west-2)\\.amazonaws\\.com/[a-z0-9_./-]+@sha256:[a-f0-9]{64}"
+    },
+    "StartApps": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": [
+        "false",
+        "true"
+      ],
+      "Description": "Keep false until schema and media import are verified"
+    },
+    "DBEngineVersion": {
+      "Type": "String",
+      "AllowedPattern": "17\\.[0-9]+",
+      "Description": "Choose an available PostgreSQL 17 minor version in this Lab/region (source backup is PG17)"
+    }
+  },
+  "Resources": {
+    "Vpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.42.0.0/16",
+        "EnableDnsSupport": true,
+        "EnableDnsHostnames": true,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}"
+            }
+          }
+        ]
+      }
+    },
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {}
+    },
+    "GatewayAttachment": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "PublicRoutes": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "InternetRoute": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PublicRoutes"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "InternetGateway"
+        }
+      },
+      "DependsOn": "GatewayAttachment"
+    },
+    "PublicA": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "AvailabilityZone": {
+          "Fn::Select": [
+            0,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "CidrBlock": "10.42.0.0/24",
+        "MapPublicIpOnLaunch": false
+      }
+    },
+    "AppA": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "AvailabilityZone": {
+          "Fn::Select": [
+            0,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "CidrBlock": "10.42.10.0/24",
+        "MapPublicIpOnLaunch": false
+      }
+    },
+    "DbA": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "AvailabilityZone": {
+          "Fn::Select": [
+            0,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "CidrBlock": "10.42.20.0/24",
+        "MapPublicIpOnLaunch": false
+      }
+    },
+    "PublicAssociationA": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "PublicA"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRoutes"
+        }
+      }
+    },
+    "NatIpA": {
+      "Type": "AWS::EC2::EIP",
+      "Properties": {
+        "Domain": "vpc"
+      },
+      "DependsOn": "GatewayAttachment"
+    },
+    "NatA": {
+      "Type": "AWS::EC2::NatGateway",
+      "Properties": {
+        "AllocationId": {
+          "Fn::GetAtt": [
+            "NatIpA",
+            "AllocationId"
+          ]
+        },
+        "SubnetId": {
+          "Ref": "PublicA"
+        }
+      }
+    },
+    "AppRoutesA": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "AppInternetA": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "AppRoutesA"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": {
+          "Ref": "NatA"
+        }
+      }
+    },
+    "AppAssociationA": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "AppA"
+        },
+        "RouteTableId": {
+          "Ref": "AppRoutesA"
+        }
+      }
+    },
+    "DbRoutesA": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "DbAssociationA": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "DbA"
+        },
+        "RouteTableId": {
+          "Ref": "DbRoutesA"
+        }
+      }
+    },
+    "PublicB": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "AvailabilityZone": {
+          "Fn::Select": [
+            1,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "CidrBlock": "10.42.1.0/24",
+        "MapPublicIpOnLaunch": false
+      }
+    },
+    "AppB": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "AvailabilityZone": {
+          "Fn::Select": [
+            1,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "CidrBlock": "10.42.11.0/24",
+        "MapPublicIpOnLaunch": false
+      }
+    },
+    "DbB": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "AvailabilityZone": {
+          "Fn::Select": [
+            1,
+            {
+              "Fn::GetAZs": ""
+            }
+          ]
+        },
+        "CidrBlock": "10.42.21.0/24",
+        "MapPublicIpOnLaunch": false
+      }
+    },
+    "PublicAssociationB": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "PublicB"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRoutes"
+        }
+      }
+    },
+    "NatIpB": {
+      "Type": "AWS::EC2::EIP",
+      "Properties": {
+        "Domain": "vpc"
+      },
+      "DependsOn": "GatewayAttachment"
+    },
+    "NatB": {
+      "Type": "AWS::EC2::NatGateway",
+      "Properties": {
+        "AllocationId": {
+          "Fn::GetAtt": [
+            "NatIpB",
+            "AllocationId"
+          ]
+        },
+        "SubnetId": {
+          "Ref": "PublicB"
+        }
+      }
+    },
+    "AppRoutesB": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "AppInternetB": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "AppRoutesB"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "NatGatewayId": {
+          "Ref": "NatB"
+        }
+      }
+    },
+    "AppAssociationB": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "AppB"
+        },
+        "RouteTableId": {
+          "Ref": "AppRoutesB"
+        }
+      }
+    },
+    "DbRoutesB": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "DbAssociationB": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "DbB"
+        },
+        "RouteTableId": {
+          "Ref": "DbRoutesB"
+        }
+      }
+    },
+    "S3Endpoint": {
+      "Type": "AWS::EC2::VPCEndpoint",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "VpcEndpointType": "Gateway",
+        "ServiceName": {
+          "Fn::Sub": "com.amazonaws.${AWS::Region}.s3"
+        },
+        "RouteTableIds": [
+          {
+            "Ref": "AppRoutesA"
+          },
+          {
+            "Ref": "AppRoutesB"
+          }
+        ]
+      }
+    },
+    "AlbSG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Public HTTPS to ALB only",
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 80,
+            "ToPort": 80,
+            "DestinationSecurityGroupId": {
+              "Ref": "AppSG"
+            }
+          }
+        ]
+      }
+    },
+    "AppSG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Nginx only from ALB; no SSH or public API",
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "WorkerSG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "No inbound; manage with SSM",
+        "VpcId": {
+          "Ref": "Vpc"
+        }
+      }
+    },
+    "DbSG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Postgres only from web and worker",
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 5432,
+            "ToPort": 5432,
+            "SourceSecurityGroupId": {
+              "Ref": "AppSG"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 5432,
+            "ToPort": 5432,
+            "SourceSecurityGroupId": {
+              "Ref": "WorkerSG"
+            }
+          }
+        ]
+      }
+    },
+    "DatabaseSecret": {
+      "Type": "AWS::SecretsManager::Secret",
+      "Properties": {
+        "GenerateSecretString": {
+          "SecretStringTemplate": "{\"username\": \"rachata\", \"dbname\": \"rachata_plus\"}",
+          "GenerateStringKey": "password",
+          "PasswordLength": 32,
+          "ExcludeCharacters": "\"'\\$`\n\r"
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "DbSubnetGroup": {
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "Private DB subnets in two AZs",
+        "SubnetIds": [
+          {
+            "Ref": "DbA"
+          },
+          {
+            "Ref": "DbB"
+          }
+        ]
+      }
+    },
+    "Database": {
+      "Type": "AWS::RDS::DBInstance",
+      "Properties": {
+        "Engine": "postgres",
+        "DBInstanceClass": {
+          "Ref": "DBInstanceClass"
+        },
+        "AllocatedStorage": "20",
+        "StorageType": "gp2",
+        "MultiAZ": true,
+        "PubliclyAccessible": false,
+        "StorageEncrypted": true,
+        "BackupRetentionPeriod": 7,
+        "DeleteAutomatedBackups": false,
+        "DeletionProtection": true,
+        "DBName": "rachata_plus",
+        "MasterUsername": "rachata",
+        "MasterUserPassword": {
+          "Fn::Sub": "{{resolve:secretsmanager:${DatabaseSecret}:SecretString:password}}"
+        },
+        "DBSubnetGroupName": {
+          "Ref": "DbSubnetGroup"
+        },
+        "VPCSecurityGroups": [
+          {
+            "Ref": "DbSG"
+          }
+        ],
+        "MonitoringInterval": 0,
+        "CopyTagsToSnapshot": true,
+        "AutoMinorVersionUpgrade": true,
+        "EnableCloudwatchLogsExports": [
+          "postgresql"
+        ],
+        "EngineVersion": {
+          "Ref": "DBEngineVersion"
+        }
+      },
+      "DeletionPolicy": "Snapshot",
+      "UpdateReplacePolicy": "Snapshot"
+    },
+    "MediaBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "OwnershipControls": {
+          "Rules": [
+            {
+              "ObjectOwnership": "BucketOwnerEnforced"
+            }
+          ]
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
+        },
+        "CorsConfiguration": {
+          "CorsRules": [
+            {
+              "AllowedOrigins": [
+                {
+                  "Ref": "Origin"
+                }
+              ],
+              "AllowedMethods": [
+                "PUT"
+              ],
+              "AllowedHeaders": [
+                "*"
+              ],
+              "MaxAge": 600,
+              "ExposedHeaders": [
+                "ETag"
+              ]
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "AbortIncompleteMultipartUploads",
+              "Status": "Enabled",
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 2
+              }
+            }
+          ]
+        }
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "MediaBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "MediaBucket"
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "MediaBucket",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Sub": "${MediaBucket.Arn}/*"
+                }
+              ],
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "LoadBalancer": {
+      "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "Properties": {
+        "Type": "application",
+        "Scheme": "internet-facing",
+        "Subnets": [
+          {
+            "Ref": "PublicA"
+          },
+          {
+            "Ref": "PublicB"
+          }
+        ],
+        "SecurityGroups": [
+          {
+            "Ref": "AlbSG"
+          }
+        ],
+        "LoadBalancerAttributes": [
+          {
+            "Key": "idle_timeout.timeout_seconds",
+            "Value": "120"
+          }
+        ]
+      },
+      "DependsOn": "GatewayAttachment"
+    },
+    "WebTargets": {
+      "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties": {
+        "VpcId": {
+          "Ref": "Vpc"
+        },
+        "Protocol": "HTTP",
+        "Port": 80,
+        "TargetType": "instance",
+        "HealthCheckPath": "/ready",
+        "HealthCheckIntervalSeconds": 15,
+        "HealthCheckTimeoutSeconds": 5,
+        "HealthyThresholdCount": 2,
+        "UnhealthyThresholdCount": 8,
+        "Matcher": {
+          "HttpCode": "200"
+        },
+        "TargetGroupAttributes": [
+          {
+            "Key": "deregistration_delay.timeout_seconds",
+            "Value": "120"
+          },
+          {
+            "Key": "stickiness.enabled",
+            "Value": "false"
+          }
+        ]
+      }
+    },
+    "HttpsListener": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "LoadBalancerArn": {
+          "Ref": "LoadBalancer"
+        },
+        "Protocol": "HTTPS",
+        "Port": 443,
+        "Certificates": [
+          {
+            "CertificateArn": {
+              "Ref": "CertificateArn"
+            }
+          }
+        ],
+        "SslPolicy": "ELBSecurityPolicy-TLS13-1-2-2021-06",
+        "DefaultActions": [
+          {
+            "Type": "forward",
+            "TargetGroupArn": {
+              "Ref": "WebTargets"
+            }
+          }
+        ]
+      }
+    },
+    "HttpRedirect": {
+      "Type": "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties": {
+        "LoadBalancerArn": {
+          "Ref": "LoadBalancer"
+        },
+        "Protocol": "HTTP",
+        "Port": 80,
+        "DefaultActions": [
+          {
+            "Type": "redirect",
+            "RedirectConfig": {
+              "Protocol": "HTTPS",
+              "Port": "443",
+              "StatusCode": "HTTP_301"
+            }
+          }
+        ]
+      }
+    },
+    "WebTemplate": {
+      "Type": "AWS::EC2::LaunchTemplate",
+      "Properties": {
+        "LaunchTemplateData": {
+          "ImageId": {
+            "Ref": "AmiId"
+          },
+          "InstanceType": {
+            "Ref": "WebInstanceType"
+          },
+          "IamInstanceProfile": {
+            "Name": {
+              "Ref": "InstanceProfile"
+            }
+          },
+          "SecurityGroupIds": [
+            {
+              "Ref": "AppSG"
+            }
+          ],
+          "MetadataOptions": {
+            "HttpTokens": "required",
+            "HttpPutResponseHopLimit": 2,
+            "HttpEndpoint": "enabled"
+          },
+          "BlockDeviceMappings": [
+            {
+              "DeviceName": "/dev/xvda",
+              "Ebs": {
+                "VolumeSize": 20,
+                "VolumeType": "gp3",
+                "Encrypted": true,
+                "DeleteOnTermination": true
+              }
+            }
+          ],
+          "UserData": {
+            "Fn::Base64": {
+              "Fn::Sub": "#!/bin/bash\nset -euo pipefail\ninstall -d -m 0700 /opt/rachata-plus\naws s3 cp 's3://${ArtifactBucket}/${ReleaseKey}' /opt/rachata-release.tar.gz --region '${AWS::Region}' --only-show-errors\necho '${ReleaseSha256}  /opt/rachata-release.tar.gz' | sha256sum --check --strict -\ntar -xzf /opt/rachata-release.tar.gz -C /opt/rachata-plus\ncat >/etc/rachata-plus-boot.sh <<'BOOT'\n#!/bin/bash\nset -euo pipefail\nexec python3 /opt/rachata-plus/deploy/aws/bootstrap.py --role web --region '${AWS::Region}' --secret '${DatabaseSecret}' --db-host '${Database.Endpoint.Address}' --bucket '${MediaBucket}' --origin '${Origin}' --api-image '${ApiImage}' --web-image '${WebImage}' --worker-image '${WorkerImage}' --log-group '${ApplicationLogs}'\nBOOT\nchmod 0700 /etc/rachata-plus-boot.sh\ncat >/etc/systemd/system/rachata-plus.service <<'UNIT'\n[Unit]\nDescription=Rachata Plus web\nWants=network-online.target\nAfter=network-online.target docker.service\nRequires=docker.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nWorkingDirectory=/opt/rachata-plus\nExecStart=/etc/rachata-plus-boot.sh\nExecStop=/usr/bin/docker compose -p rachata-plus-aws -f compose.aws.yaml --profile web stop\nTimeoutStartSec=900\nTimeoutStopSec=75\nRestart=on-failure\nRestartSec=30\n[Install]\nWantedBy=multi-user.target\nUNIT\nsystemctl daemon-reload\nsystemctl enable --now rachata-plus.service\n"
+            }
+          }
+        }
+      }
+    },
+    "WebASG": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "VPCZoneIdentifier": [
+          {
+            "Ref": "AppA"
+          },
+          {
+            "Ref": "AppB"
+          }
+        ],
+        "MinSize": {
+          "Fn::If": [
+            "AppsEnabled",
+            {
+              "Ref": "WebMin"
+            },
+            "0"
+          ]
+        },
+        "DesiredCapacity": {
+          "Fn::If": [
+            "AppsEnabled",
+            {
+              "Ref": "WebDesired"
+            },
+            "0"
+          ]
+        },
+        "MaxSize": {
+          "Ref": "WebMax"
+        },
+        "LaunchTemplate": {
+          "LaunchTemplateId": {
+            "Ref": "WebTemplate"
+          },
+          "Version": {
+            "Fn::GetAtt": [
+              "WebTemplate",
+              "LatestVersionNumber"
+            ]
+          }
+        },
+        "HealthCheckType": "ELB",
+        "HealthCheckGracePeriod": 600,
+        "DefaultInstanceWarmup": 120,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-web"
+            },
+            "PropagateAtLaunch": true
+          }
+        ],
+        "TargetGroupARNs": [
+          {
+            "Ref": "WebTargets"
+          }
+        ]
+      },
+      "DependsOn": [
+        "AppInternetA",
+        "AppInternetB",
+        "HttpsListener"
+      ]
+    },
+    "WorkerTemplate": {
+      "Type": "AWS::EC2::LaunchTemplate",
+      "Properties": {
+        "LaunchTemplateData": {
+          "ImageId": {
+            "Ref": "AmiId"
+          },
+          "InstanceType": {
+            "Ref": "WorkerInstanceType"
+          },
+          "IamInstanceProfile": {
+            "Name": {
+              "Ref": "InstanceProfile"
+            }
+          },
+          "SecurityGroupIds": [
+            {
+              "Ref": "WorkerSG"
+            }
+          ],
+          "MetadataOptions": {
+            "HttpTokens": "required",
+            "HttpPutResponseHopLimit": 2,
+            "HttpEndpoint": "enabled"
+          },
+          "BlockDeviceMappings": [
+            {
+              "DeviceName": "/dev/xvda",
+              "Ebs": {
+                "VolumeSize": 80,
+                "VolumeType": "gp3",
+                "Encrypted": true,
+                "DeleteOnTermination": true
+              }
+            }
+          ],
+          "UserData": {
+            "Fn::Base64": {
+              "Fn::Sub": "#!/bin/bash\nset -euo pipefail\ninstall -d -m 0700 /opt/rachata-plus\naws s3 cp 's3://${ArtifactBucket}/${ReleaseKey}' /opt/rachata-release.tar.gz --region '${AWS::Region}' --only-show-errors\necho '${ReleaseSha256}  /opt/rachata-release.tar.gz' | sha256sum --check --strict -\ntar -xzf /opt/rachata-release.tar.gz -C /opt/rachata-plus\ncat >/etc/rachata-plus-boot.sh <<'BOOT'\n#!/bin/bash\nset -euo pipefail\nexec python3 /opt/rachata-plus/deploy/aws/bootstrap.py --role worker --region '${AWS::Region}' --secret '${DatabaseSecret}' --db-host '${Database.Endpoint.Address}' --bucket '${MediaBucket}' --origin '${Origin}' --api-image '${ApiImage}' --web-image '${WebImage}' --worker-image '${WorkerImage}' --log-group '${ApplicationLogs}'\nBOOT\nchmod 0700 /etc/rachata-plus-boot.sh\ncat >/etc/systemd/system/rachata-plus.service <<'UNIT'\n[Unit]\nDescription=Rachata Plus worker\nWants=network-online.target\nAfter=network-online.target docker.service\nRequires=docker.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nWorkingDirectory=/opt/rachata-plus\nExecStart=/etc/rachata-plus-boot.sh\nExecStop=/usr/bin/docker compose -p rachata-plus-aws -f compose.aws.yaml --profile worker stop\nTimeoutStartSec=900\nTimeoutStopSec=75\nRestart=on-failure\nRestartSec=30\n[Install]\nWantedBy=multi-user.target\nUNIT\nsystemctl daemon-reload\nsystemctl enable --now rachata-plus.service\n"
+            }
+          }
+        }
+      }
+    },
+    "WorkerASG": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "VPCZoneIdentifier": [
+          {
+            "Ref": "AppA"
+          },
+          {
+            "Ref": "AppB"
+          }
+        ],
+        "MinSize": {
+          "Fn::If": [
+            "AppsEnabled",
+            "1",
+            "0"
+          ]
+        },
+        "DesiredCapacity": {
+          "Fn::If": [
+            "AppsEnabled",
+            "1",
+            "0"
+          ]
+        },
+        "MaxSize": "1",
+        "LaunchTemplate": {
+          "LaunchTemplateId": {
+            "Ref": "WorkerTemplate"
+          },
+          "Version": {
+            "Fn::GetAtt": [
+              "WorkerTemplate",
+              "LatestVersionNumber"
+            ]
+          }
+        },
+        "HealthCheckType": "EC2",
+        "HealthCheckGracePeriod": 600,
+        "DefaultInstanceWarmup": 120,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${AWS::StackName}-worker"
+            },
+            "PropagateAtLaunch": true
+          }
+        ]
+      },
+      "DependsOn": [
+        "AppInternetA",
+        "AppInternetB",
+        "HttpsListener"
+      ]
+    },
+    "WebCpuScaling": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AutoScalingGroupName": {
+          "Ref": "WebASG"
+        },
+        "PolicyType": "TargetTrackingScaling",
+        "TargetTrackingConfiguration": {
+          "TargetValue": 60.0,
+          "PredefinedMetricSpecification": {
+            "PredefinedMetricType": "ASGAverageCPUUtilization"
+          }
+        }
+      }
+    },
+    "DbStorageAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Inspect application readiness or capacity; notification actions are configured separately",
+        "Namespace": "AWS/RDS",
+        "MetricName": "FreeStorageSpace",
+        "Dimensions": [
+          {
+            "Name": "DBInstanceIdentifier",
+            "Value": {
+              "Ref": "Database"
+            }
+          }
+        ],
+        "Statistic": "Average",
+        "Period": 300,
+        "EvaluationPeriods": 3,
+        "Threshold": 2147483648,
+        "ComparisonOperator": "LessThanThreshold",
+        "TreatMissingData": "notBreaching"
+      }
+    },
+    "WebHealthAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Inspect application readiness or capacity; notification actions are configured separately",
+        "Namespace": "AWS/ApplicationELB",
+        "MetricName": "UnHealthyHostCount",
+        "Dimensions": [
+          {
+            "Name": "LoadBalancer",
+            "Value": {
+              "Fn::GetAtt": [
+                "LoadBalancer",
+                "LoadBalancerFullName"
+              ]
+            }
+          },
+          {
+            "Name": "TargetGroup",
+            "Value": {
+              "Fn::GetAtt": [
+                "WebTargets",
+                "TargetGroupFullName"
+              ]
+            }
+          }
+        ],
+        "Statistic": "Maximum",
+        "Period": 60,
+        "EvaluationPeriods": 3,
+        "Threshold": 0,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching"
+      }
+    },
+    "ApplicationLogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "RetentionInDays": 7
+      },
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain"
+    },
+    "AppIngress": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "AppSG"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": 80,
+        "ToPort": 80,
+        "SourceSecurityGroupId": {
+          "Ref": "AlbSG"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "Url": {
+      "Value": {
+        "Ref": "Origin"
+      }
+    },
+    "LoadBalancerDNS": {
+      "Value": {
+        "Fn::GetAtt": [
+          "LoadBalancer",
+          "DNSName"
+        ]
+      }
+    },
+    "MediaBucket": {
+      "Value": {
+        "Ref": "MediaBucket"
+      }
+    },
+    "DatabaseEndpoint": {
+      "Value": {
+        "Fn::GetAtt": [
+          "Database",
+          "Endpoint.Address"
+        ]
+      }
+    },
+    "DatabaseSecretArn": {
+      "Value": {
+        "Ref": "DatabaseSecret"
+      }
+    },
+    "WebASG": {
+      "Value": {
+        "Ref": "WebASG"
+      }
+    },
+    "WorkerASG": {
+      "Value": {
+        "Ref": "WorkerASG"
+      }
+    },
+    "VpcId": {
+      "Value": {
+        "Ref": "Vpc"
+      }
+    },
+    "AppSubnetA": {
+      "Value": {
+        "Ref": "AppA"
+      }
+    },
+    "AppSubnetB": {
+      "Value": {
+        "Ref": "AppB"
+      }
+    },
+    "DbSecurityGroup": {
+      "Value": {
+        "Ref": "DbSG"
+      }
+    },
+    "ApplicationLogGroup": {
+      "Value": {
+        "Ref": "ApplicationLogs"
+      }
+    }
+  },
+  "Conditions": {
+    "AppsEnabled": {
+      "Fn::Equals": [
+        {
+          "Ref": "StartApps"
+        },
+        "true"
+      ]
+    }
+  }
+}

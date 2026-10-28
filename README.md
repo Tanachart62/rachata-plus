@@ -1,233 +1,80 @@
 # Rachata Plus
 
-เว็บวิดีโอ React + TypeScript + Vite และ Go API ใช้ PostgreSQL กับ FFmpeg แปลง HLS ในเครื่อง เตรียมรันบน EC2 โดยให้ Nginx ส่งวิดีโอ ไม่มี CloudFront และยังไม่ได้ deploy AWS
+คู่มือขึ้น AWS แบบทำตาม AWS Console ทีละขั้น พร้อม User Data สำหรับ Launch Template: [AWS-WORKSHOP.md](AWS-WORKSHOP.md)
 
-## เปิดชุด Docker ในเครื่อง
+เว็บวิดีโอสำหรับงานส่งอาจารย์ ใช้ React + TypeScript + Vite, Go + Gin + pgx, PostgreSQL และ FFmpeg/ffprobe แปลง HLS หลายความละเอียด
 
-เครื่องที่มี `.env.local` และฐานข้อมูลเดิมพร้อมแล้ว:
+ชุด source นี้เก็บโค้ดแอป ไฟล์ build และไฟล์รันระบบ ส่วน tests และเครื่องมือ lint ถูกนำออกตามขอบเขตส่งงาน ไม่รวมการเก็บเงินจริง
 
-```cmd
+## โครงสร้างที่ใช้ build และรัน
+
+- `apps/web/src/` — หน้าเว็บ เครื่องเล่น และการเชื่อม API
+- `apps/web/package.json`, `package-lock.json` และ `tsconfig*.json` — dependency และการ build frontend
+- `apps/web/Dockerfile`, `apps/web/nginx/nginx.conf` — build และส่งเว็บ/HLS
+- `apps/api/` — API, worker, Go modules และ Dockerfile
+- `db/migrations/` — migrations 001–014 ที่ Compose อ้างอิง
+- `compose.yaml`, `compose.runtime.yaml` — PostgreSQL, API, worker และ web สำหรับ local
+- `scripts/backup-local-db.mjs`, `scripts/backup-local-media.mjs` — backup/ตรวจ restore ของชุด local
+
+React, hls.js, TypeScript และ Vite ยังจำเป็นต่อแอปหรือขั้นตอน build แม้ production จะส่งเฉพาะไฟล์ static ผ่าน Nginx ส่วน FFmpeg อยู่ใน worker image
+
+## รันชุด local ด้วย Docker
+
+สร้าง `.env.local` จาก `.env.local.example` แล้วเปลี่ยนรหัสผ่านฐานข้อมูลก่อนเริ่ม อย่านำตัวอย่างรหัสผ่านไปใช้บน AWS
+
+```sh
 docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml up -d --build
 ```
 
-เปิด `http://127.0.0.1:8088/` ชุดนี้ใช้ PostgreSQL, API, worker และ Nginx ในเครื่อง
-สำหรับเครื่องใหม่ให้คัดลอก `.env.local.example` เป็น `.env.local` และตั้งค่าฐานข้อมูลก่อนเริ่ม; SQL ที่ mount เข้า PostgreSQL จะทำงานอัตโนมัติเฉพาะ data volume ว่างเท่านั้น
+ค่าเริ่มต้นเปิดที่ `http://127.0.0.1:8088/` ตรวจสถานะด้วย `docker compose` โดยใช้ env/project/ไฟล์ Compose ชุดเดียวกันตามคำสั่งข้างต้น
 
-ถ้าฐานข้อมูลเดิมยังไม่มี `watchlist` และ `watch_history` ให้ใช้ migration `db/migrations/add_account_library.sql` กับฐานข้อมูลนั้นก่อน แล้วใช้ `db/migrations/add_account_consistency.sql` เพื่อเพิ่ม revision, pagination indexes และ storage reservations ก่อนเปิด API รุ่นนี้ จากนั้นใช้ `db/migrations/add_membership_management.sql` เพื่อเพิ่มแพ็กเกจ, membership revision และประวัติแอดมิน (สมาชิกเดิมกำหนดเป็น Basic โดยรักษาวันหมดอายุเดิม) ใช้ `db/migrations/add_account_controls.sql` เพิ่มสถานะบัญชีและ audit สำหรับระงับ/เปิดคืน/ออกทุกอุปกรณ์ด้วย ใช้ `db/migrations/add_session_devices.sql` เพิ่ม ID เซสชันและข้อมูลเบราว์เซอร์ด้วย ห้ามลบ volume เพื่ออัปเดต schema
+Docker build ติดตั้ง dependency ให้เอง ไม่ต้องแนบ `node_modules` หรือ `dist` ไปกับ source หากจะ build frontend บน host ให้เข้า `apps/web` แล้วรัน `npm ci` และ `npm run build`
 
-ถ้าพัฒนา React แบบ hot reload ให้รัน Go API ด้วย `ENV_FILE` ชี้ไปยัง `.env.local` และ `AUTH_ORIGIN=http://127.0.0.1:5174` จากนั้นรัน `npm run dev` ใน `apps/web`
+## ข้อกำหนดก่อน deploy AWS
 
-## โครงสร้างและคู่มือ
+อ่าน [AWS-DEPLOY.md](AWS-DEPLOY.md) สำหรับขั้นตอนละเอียดและข้อจำกัด Learner Lab แผน AWS ใช้ ALB + EC2 Auto Scaling สอง AZ, Worker แยกหนึ่งเครื่อง, RDS PostgreSQL Multi-AZ และ S3 private โดยไม่มี CloudFront
 
-| ตำแหน่ง | หน้าที่ |
-| --- | --- |
-| `apps/web/src/` | หน้าเว็บและ components |
-| `apps/web/nginx/` | ส่งหน้าเว็บและ HLS หลัง API ตรวจสิทธิ์ |
-| `apps/api/` | ระบบบัญชี API วิดีโอ และ worker แยกโปรเซส |
-| `db/migrations/` | SQL สร้าง/ปรับ schema ตามลำดับ |
-| `scripts/check-runtime.mjs` | ตรวจชุด Docker จริงในเครื่อง |
-| `scripts/backup-local-db.mjs` | สำรองฐานข้อมูลและตรวจ restore ลงฐานข้อมูลชั่วคราว |
-| `scripts/backup-local-media.mjs` | สำรอง storage และตรวจ SHA256 หลัง restore |
-| `storage/` | ไฟล์วิดีโอจริง ไม่เก็บใน Git |
+- `compose.aws.yaml` เป็น standalone แยกจาก Compose local ไม่รัน PostgreSQL บน EC2 และไม่ให้เครื่องเว็บรอ Worker ในเครื่องเดียวกัน
+- `deploy/aws/stack.json` เตรียม VPC/subnets, NAT สองตัว, S3 endpoint, ALB, RDS, Secrets Manager, CloudWatch และ Launch Templates/ASGs โดยใช้ LabInstanceProfile เดิม ยังไม่ได้สร้างทรัพยากรจริง
+- production ต้อง `MEDIA_BACKEND=s3`, `MEDIA_DELIVERY=direct`, `DB_SSLMODE=verify-full`, HTTPS และ secure cookies ไฟล์ HLS ยังผ่าน API ตรวจสิทธิ์ก่อนส่งจาก S3
+- Migration 015 ใช้สำหรับ AWS เพิ่ม object keys, direct multipart uploads และ shared rate limits แยกจาก local 001–014 สคริปต์ migration มี schema baseline/checksum ledger และไม่รันจาก Auto Scaling boot
+- รูปภาพถูก normalize ก่อนอัปโหลดและมีงบ decoder/scratch ตามเครื่อง การรับไฟล์ใหญ่ไม่ใช่การรับประกันว่าทรัพยากรไม่จำกัด
+- ต้องมีโดเมน/subdomain ที่ควบคุม DNS ได้และ ACM certificate ก่อนสร้างชุด HTTPS ตรวจงบจริงก่อนสร้าง ALB/NAT/RDS เพราะแม้ StartApps=false ก็ยังมีค่าใช้จ่ายของ infrastructure
+- ต้องตรวจ IAM, quota, capacity, scaling, RDS failover, backup/restore และ flows บน AWS จริงก่อนส่งอาจารย์ ผลทดสอบ local/emulator ไม่แทนผล AWS
 
-- [บันทึกเรียน React](apps/web/LEARN-REACT.md)
-- [ขอบเขตและผลตรวจ Accessibility](apps/web/ACCESSIBILITY.md)
+Demo checkout เปิดเฉพาะ local เมื่อเป็น production ให้แอดมินจัดสิทธิ์สมาชิกแก่บัญชีเดโม่ ไม่มีระบบรับเงินจริง Basic สูงสุด 1080p/2 จอ, Standard 1440p/2 จอ, Premium 2160p/4 จอ ตามต้นฉบับและไม่ upscale Dashboard แอดมินดึงจำนวนบัญชี สมาชิก สถานะวิดีโอ คิวแปลง และกิจกรรมจาก PostgreSQL จริง อัปเดตทุก 30 วินาทีขณะเปิดหน้า ไม่แสดงกราฟยอดชม/CPU/RAM จำลอง และยังไม่ได้เชื่อม CloudWatch
 
-บัญชี วิดีโอ โปรไฟล์ เปลี่ยนรหัสผ่าน ประวัติ และดูภายหลังเชื่อม API/ฐานข้อมูลแล้ว รีเฟรชหรือเข้าสู่ระบบอีกครั้งข้อมูลยังอยู่
-การเปลี่ยนอีเมลต้องยืนยันรหัสผ่านปัจจุบัน แต่ยังไม่มีการยืนยันว่าเป็นเจ้าของกล่องอีเมล; การเปลี่ยนอีเมล/รหัสผ่านจะหมุน session ของอุปกรณ์ปัจจุบันและยกเลิก session อื่นใน transaction เดียวกัน
-รหัสผ่านเก็บด้วย Argon2id และ salt สุ่ม; ไม่มี plaintext password ในฐานข้อมูล
-เครื่องมือทดลอง UI แสดงเฉพาะ development หรือ build ที่เลือกโหมด demo
-สิทธิ์สมาชิกเปิด/ต่ออายุ/ยกเลิกโดยแอดมินและบันทึกในฐานข้อมูลแล้ว ไม่มีการเก็บเงินจริง Backend บังคับ Basic สูงสุด 1080p / 2 จอ, Standard สูงสุด 1440p (2K) / 2 จอ, Premium สูงสุด 2160p (4K) / 4 จอ ตามความละเอียดต้นฉบับ ส่วน Dashboard ยังมีข้อมูลจำลอง จึงยังไม่ถือว่าพร้อมเปิด production
+## ฐานข้อมูลและการสำรอง
 
-## รูปโปรไฟล์
+Compose เรียก migrations 001–014 อัตโนมัติเฉพาะ volume ว่าง ฐานข้อมูลเดิมต้องตรวจ schema และใช้เฉพาะ migration ที่ขาด ห้ามลบ volume เพื่ออัปเดต schema และห้ามรัน migration ซ้ำโดยไม่ตรวจ
 
-หน้าโปรไฟล์มีปุ่มอัปโหลดรูป JPEG/PNG ไม่เกิน 2 MB (ไม่เกิน 4096 px ต่อด้านและ 8 ล้านพิกเซล) ระบบตรวจข้อมูลภาพจริง ครอบกลางเป็นสี่เหลี่ยม ย่อไม่เกิน 256×256 และบันทึก JPEG ที่ตัด metadata ใน `users.avatar_jpeg` จึงคงอยู่หลังรีเฟรชและรวมใน backup ของ PostgreSQL รูปมีไว้สำหรับโปรไฟล์ของเจ้าของบัญชีเท่านั้น `GET/POST /auth/avatar` ตรวจ session/เจ้าของบัญชีและ Origin สำหรับการเขียน ถ้าอัปโหลดผิดพลาดรูปเดิมคงอยู่ โหมด UI เดโม่เก็บรูปเฉพาะรอบนั้น
+สคริปต์ backup ปัจจุบันใช้ได้กับ Compose local เท่านั้น ก่อน backup ให้หยุด API/worker/web ด้วยพารามิเตอร์ Compose ชุดเดียวกับที่เปิดระบบ แล้วรันจาก root:
 
-ฐานข้อมูลเดิมใช้ `db/migrations/add_profile_avatars.sql` ก่อนรัน API รุ่นนี้ (ใช้กับฐานข้อมูลในเครื่องแล้ว) ห้ามลบ volume เพื่ออัปเดต schema ฐานข้อมูลใหม่ใน Compose ใช้ migration 012 อัตโนมัติ
-
-## ยืนยันแพ็กเกจแบบจำลองในเครื่อง
-
-หน้า `#/plans` เลือกแพ็กเกจ → ดำเนินการต่อ → ยืนยันชำระเงินแบบจำลอง แล้วบันทึกสิทธิ์ใน PostgreSQL และกลับโปรไฟล์ ไม่มีการหักเงินจริง บัญชีฟรีเริ่ม 30 วัน ส่วนอัปเกรดคงวันหมดอายุเดิม Free → Basic → Standard → Premium เท่านั้น แพ็กเกจเดิมหรือต่ำกว่าเลือกไม่ได้ (ตรวจซ้ำใน API) เมื่อสมาชิกหมดอายุจึงเริ่มแพ็กเกจใหม่ได้ แอดมินมีสิทธิ์รับชมอยู่แล้ว
-
-`POST /auth/membership/demo-checkout` ใช้ session, Origin, expectedUserId และ expectedRevision พร้อม user row lock/transaction เพื่อกันคำขอซ้ำและการแข่งขันกับการจัดการสมาชิกของแอดมิน มี audit ใน membership_events โดย actor เป็นเจ้าของบัญชี และเปิดเฉพาะ `APP_ENV=local` ส่วน production ปฏิเสธคำสั่งนี้ ต้องเชื่อมผู้ให้บริการชำระเงินจริงและตรวจยืนยันการชำระจาก Backend ก่อนเปิดใช้งานจริง กฎอัปเกรดอย่างเดียวนี้ใช้กับหน้าซื้อของผู้ใช้; แอดมินยังจัดการสิทธิ์ตามงานดูแลระบบได้
-
-## จัดการสมาชิกโดยแอดมิน
-
-เข้าสู่ระบบแอดมิน เปิดหน้าแอดมิน แล้วเลือกเมนู **สมาชิก** (`#/admin/members`) หน้าแสดงรายชื่อบัญชีตั้งแต่เปิด (เรียงตามลำดับสมัคร) กดจัดการจากรายชื่อได้ หรือค้นหาบางส่วนของชื่อ/ชื่อผู้ใช้/อีเมล มีปุ่มโหลดเพิ่มเติมครั้งละ 50 บัญชี เลือก Basic/Standard/Premium และเพิ่ม 1–365 วัน กดยืนยันก่อนบันทึก หากยังมีสมาชิกอยู่จะต่อจากวันหมดอายุเดิม การเปลี่ยนแพ็กเกจมีผลทันที และวันหมดอายุรวมต้องไม่เกิน 730 วันจากวันนี้
-
-การยกเลิกสิทธิ์มีขั้นตอนยืนยันและมีผลกับคำขอวิดีโอเต็มครั้งถัดไป (ส่วนที่ดาวน์โหลด/บัฟเฟอร์แล้วอาจยังเล่นต่อได้) แต่สิทธิ์ผู้ดูแลระบบยังรับชมได้โดยไม่ต้องมีแพ็กเกจ การแก้สิทธิ์แต่ละครั้งอยู่ใน transaction เดียวกับ audit (`membership_events`) และ revision ป้องกันการบันทึกทับ/ส่งซ้ำจากข้อมูลเก่า
-
-ผู้ใช้ทั่วไปดูชื่อแพ็กเกจและวันหมดอายุจริงในโปรไฟล์ได้ และต้องแจ้งแอดมินเพื่อเปิดสิทธิ์ หน้าเลือกแพ็กเกจไม่ได้เปิดสิทธิ์เอง ไม่มีการส่งคำขออัตโนมัติหรือเก็บเงินจริง Frontend ตรวจสถานะซ้ำเมื่อกลับมาใช้แท็บ/ทุก 60 วินาทีขณะมองเห็น และปรับเมื่อถึงวันหมดอายุ Backend ตรวจฐานข้อมูลกับคำขอ HLS แต่ละครั้ง
-
-ในหน้าจัดการบัญชี มี **ระงับบัญชี / เปิดใช้งานบัญชีคืน** และ **ออกจากระบบทุกอุปกรณ์** ทุกคำสั่งต้องยืนยันและมี audit ระงับบัญชีจะลบเซสชันทั้งหมดใน transaction เดียวกัน เก็บข้อมูลและสมาชิกเดิมไว้ ไม่หยุดนับวันหมดอายุ ผู้ใช้ที่ถูกระงับเข้าสู่ระบบไม่ได้ และคำขอ API/วิดีโอเต็มจากเซสชันเก่าถูกปฏิเสธ การเปิดคืนต้อง login ใหม่ เซสชันเก่าไม่กลับมาใช้งานได้
-
-ออกจากระบบทุกอุปกรณ์ไม่ระงับบัญชี จึง login ใหม่ได้ทันที ห้ามแอดมินระงับตัวเอง แต่เลือกออกทุกอุปกรณ์ของตัวเองได้ (รวมเซสชันแอดมินที่กำลังใช้) ไฟล์วิดีโอที่ส่งถึงเครื่องหรือบัฟเฟอร์ไว้แล้วไม่สามารถเรียกคืนได้
-
-ส่วน **เซสชันที่ยังใช้งานได้** แสดงเบราว์เซอร์/ระบบปฏิบัติการ, เวลาเข้าสู่ระบบ, วันหมดอายุ และเครื่องหมายเซสชันปัจจุบันของแอดมิน เลือกตัดการเชื่อมต่อทีละรายการได้ มีขั้นตอนยืนยันและ audit พร้อม ID เซสชัน เซสชันอื่นของบัญชีเดียวกันยังใช้งานได้ การตัดเซสชันปัจจุบันทำให้แอดมินต้อง login ใหม่
-
-ข้อมูลอุปกรณ์อ้างอิง User-Agent ที่ browser ส่งมา ไม่ยืนยันรุ่นเครื่องหรือว่าออนไลน์อยู่ขณะนี้ เซสชันก่อน migration อาจไม่ทราบอุปกรณ์ ต้อง login ใหม่เพื่อบันทึกข้อมูล แสดงครั้งละ 50 เซสชันและโหลดเพิ่มเติมได้ ไม่ส่ง session cookie/token/hash กลับในรายการ รายการ/API อยู่เฉพาะแอดมิน
-
-API เซสชัน: `GET /auth/admin/memberships/:id/sessions?cursor=...`; คำสั่งตัดรายรายการใช้ endpoint POST เดิม ส่ง `action=logout_session`, `sessionId` และ revision ของบัญชี Backend ตรวจว่าเซสชันเป็นของบัญชีเป้าหมายและยังไม่หมดอายุ การลบและ audit อยู่ใน transaction เดียวกัน
-
-API รายชื่อ: `GET /auth/admin/memberships/accounts?q=...&cursor=...` ค้นหาเป็นข้อความตรงตัวและแบ่งหน้าด้วย ID; API รายละเอียด: `GET /auth/admin/memberships?email=...` และ `POST /auth/admin/memberships/:id` เฉพาะแอดมิน คำขอเขียนต้องส่ง `expectedUserId` ของแอดมินและ `expectedRevision` ของบัญชีเป้าหมาย ทุกการเปลี่ยนแปลงมีบันทึกผู้ดำเนินการและเวลาที่ทำ แสดงประวัติล่าสุด 20 รายการ
-
-## ความถูกต้องของบัญชีและการบันทึก
-
-คำขอแก้โปรไฟล์/รหัสผ่าน/ดูภายหลัง/ประวัติ/ออกจากระบบต้องส่ง `expectedUserId` ที่ UI กำลังใช้อยู่ API ตรวจเทียบกับเซสชันก่อนเขียนข้อมูล หน้าเว็บแจ้งการเปลี่ยนบัญชีระหว่างแท็บด้วย BroadcastChannel และตรวจบัญชีใหม่เมื่อกลับมาที่แท็บ ไม่ส่ง token ผ่าน channel
-
-ประวัติใช้ revision และคิวต่อวิดีโอ: ส่งครั้งเดียวต่อเวลา เก็บตำแหน่งล่าสุดที่รอ และยืนยันว่าบันทึกแล้วหลัง API ตอบสำเร็จ เมื่อ conflict จะอ่าน revision ใหม่และส่งเฉพาะตำแหน่งล่าสุดของคิว รองรับ seek ย้อนหลังด้วย หลายอุปกรณ์ใช้ตำแหน่งที่ server ยอมรับครั้งล่าสุด ไม่รวมตำแหน่งด้วยค่าสูงสุด
-
-Library ส่งครั้งละ 50 รายการพร้อม cursor และ metadata วิดีโอของหน้านั้น ปุ่มโหลดเพิ่มเติมในโปรไฟล์/ประวัติเปิดหน้าถัดไปได้โดยไม่พึ่งคลังวิดีโอ 500 รายการแรก เมื่อ GET ล้มเหลวมีปุ่มลองใหม่ และ snapshot ที่เก่ากว่า mutation จะไม่เขียนทับ state
-
-Logout ยกเลิก token ที่ฐานข้อมูล ตัว cookie ที่ไม่สามารถใช้งานแล้วจะถูกแทนที่เมื่อ login ใหม่ ไม่ส่งคำสั่งลบ cookie จาก response logout เพื่อป้องกัน response ช้าลบ cookie ของ login ใหม่จากอีกแท็บ
-
-คำขอเขียนดูภายหลัง/ประวัติและแอดมินอัปโหลด/เปลี่ยนสถานะ/ลบ/แปลงใหม่ จะตรวจเซสชันและสิทธิ์ปัจจุบันหลังอ่าน body ครบก่อนเขียน โดยล็อก user กับแถวเซสชัน และอ่านสิทธิ์ใหม่ใน transaction เดียวกับการบันทึก ประวัติตรวจสมาชิกปัจจุบันอีกครั้ง การถอนเซสชัน/ระงับบัญชี/เปลี่ยนรหัสผ่านและ logout ใช้ user lock ที่สอดคล้องกัน ส่วน session row lock จัดลำดับการลบ token เก่าเมื่อล็อกอินสลับบัญชี จึงจัดลำดับการถอนสิทธิ์กับการเขียนได้ โดยไม่ถือ lock ระหว่างรับไฟล์อัปโหลด หากถูกปฏิเสธหลังรับไฟล์ จะล้างไฟล์และคืน reservation ตาม cleanup เดิม
-
-## งบพื้นที่วิดีโอในเครื่อง
-
-API และ worker ใช้ PostgreSQL advisory lock กับ `media_reservations` จองงบ source + output ร่วมกันก่อนรับ upload/เริ่มแปลง นับไฟล์เดิมที่ยังไม่มี reservation ด้วย หลังงานจบปรับ reservation เป็นขนาดจริง ลบวิดีโอแล้วคืนงบ งานอัปโหลดที่ขาดตอนมี lease 20 นาทีและ worker ล้างเมื่อหมดอายุ
-
-| ตัวแปร | ค่าเริ่มต้น | ความหมาย |
-| --- | --- | --- |
-| `MEDIA_TOTAL_BYTES` | 10737418240 (10 GiB) | งบรวมไฟล์และงานที่จองพื้นที่ไว้ |
-| `MEDIA_JOB_BYTES` | 1073741824 (1 GiB) | งบ source + HLS ต่อวิดีโอ |
-| `MEDIA_MIN_FREE_BYTES` | 536870912 (512 MiB) | พื้นที่ว่างสำรองที่ต้องรักษา |
-
-ตั้งค่าทั้ง API/worker ให้ตรงกัน ในชุด Docker แก้ `x-app-env` ที่ `compose.runtime.yaml` Worker ตรวจขนาดงานและพื้นที่ว่างทุกวินาที เกินงบจะยกเลิก FFmpeg และลบ full/preview ที่ไม่สมบูรณ์ แต่เก็บ source ให้ลองใหม่ได้ จำกัด output ที่ 30 fps และ maxrate ตามแต่ละระดับตั้งแต่ 800k ถึง 16000k
-
-นี่เป็นการควบคุมระดับแอป ไม่ใช่ filesystem hard quota: ขนาดอาจเกินชั่วคราวระหว่างรอบตรวจและไม่ควบคุมไฟล์จากโปรแกรมอื่น ก่อนใช้งานจริงยังต้องเลือกขนาดดิสก์/งบให้เหมาะสมและตรวจการใช้พื้นที่รวมของ PostgreSQL/logs/backups แยกจาก media
-
-## งานก่อนเปิดใช้งานจริง
-
-1. ทดสอบขั้นตอนเปิดสิทธิ์โดยแอดมินกับผู้ใช้จริง; หากภายหลังจะเก็บเงินจริง ต้องออกแบบการชำระเงินแยกก่อน ไม่ได้รวมในระบบปัจจุบัน
-2. ทำ Dashboard จากข้อมูลจริง และสถานะของ API/worker/ฐานข้อมูล; ตัวเลข Cloud Monitoring ปัจจุบันเป็นตัวอย่าง
-3. สิทธิ์คุณภาพและจำนวนจอบังคับที่ Backend แล้ว ต้องทดสอบการรับชมหลายอุปกรณ์จริงบนเครื่อง deploy และเตรียมกระบวนการรับเงิน/คืนเงินก่อนขายแพ็กเกจจริง (ปัจจุบันไม่มีการเก็บเงินจริง)
-4. เตรียมการยืนยันอีเมล/กู้คืนรหัสผ่านสำหรับผู้ใช้จริง โดยเลือกบริการก่อน ไม่สร้างบริการ AWS เพิ่มเอง
-5. เตรียมค่ารัน production บน EC2 ตามระบบเดิม: Nginx ส่งหน้าเว็บและ HLS, Go API ตรวจสิทธิ์, worker แปลงไฟล์ โดยไม่มี CloudFront
-6. ตั้งค่าโดเมน/HTTPS, `AUTH_ORIGIN` และ `COOKIE_SECURE=true`; จัดการ secrets และปิดการเข้าถึง API/ฐานข้อมูลจากภายนอก
-7. เตรียม backup/restore ฐานข้อมูลและ storage, วิธี migration/rollback, ตรวจพื้นที่ดิสก์ และทดสอบภาระการชมพร้อมกันบนเครื่องที่จะใช้
-8. ตรวจทุก flow บน HTTPS ก่อนเปิดใช้งาน และตรวจ accessibility ที่ยังค้างตาม ACCESSIBILITY.md
-
-รอบนี้เป็นการเตรียมในเครื่อง ยังไม่ deploy หรือสร้างทรัพยากร AWS
-
-## ตรวจระบบ
-
-ใน `apps/api`: `go test ./...` และ `go vet ./...`
-เมื่อต้องการตรวจบัญชีกับ PostgreSQL ในเครื่อง ให้ตั้ง `LOCAL_AUTH_INTEGRATION=1` และใช้ `go test -count=1 ./...`; รวม concurrency/revision/pagination และใช้ schema ชั่วคราวที่ล้างทิ้งเมื่อจบ **หยุด worker ของ Compose ก่อนรัน integration** และเปิดกลับหลังจบ เพราะ advisory lock ของ PostgreSQL ใช้ร่วมกันระหว่าง schema ในฐานข้อมูลเดียวกัน ห้ามรันชุด Go integration พร้อม `check-runtime.mjs`
-
-Regression สำหรับสิทธิ์ระหว่างรับ body อยู่ใน `TestLocalAuthIntegration/authorization-lifecycle` ครอบคลุมดูภายหลัง (เพิ่ม/นำออก), ประวัติ, อัปโหลด และเปลี่ยนสถานะวิดีโอ ระหว่าง logout, ตัดเซสชันรายอุปกรณ์โดยผู้ใช้/แอดมิน, logout ทุกอุปกรณ์, ระงับบัญชี, เปลี่ยนรหัสผ่าน, ล็อกอินสลับบัญชี และยกเลิกสมาชิก (ประวัติ) พร้อมกรณีที่สิทธิ์ยังใช้ได้, owner/revision conflict, การคืนไฟล์/reservation และการล็อกเซสชันระหว่างสลับบัญชี ไม่เรียก FFmpeg หรือ worker ใช้เฉพาะ schema และ temporary storage ของชุดทดสอบเดิม
-
-เลือก subtest นี้จาก `apps/api` หลังเตรียม PostgreSQL สำหรับทดสอบในเครื่องและตั้ง `LOCAL_AUTH_INTEGRATION=1`: `go test -count=1 -run '^TestLocalAuthIntegration$/^authorization-lifecycle$' -v .` การเตรียม fixture และ checks ที่อยู่นอก subtest ใน parent test เดิมยังรันด้วย ก่อนใช้กับ production ควรให้ regression ผ่านบน fixture แยกที่จำกัด network/environment/filesystem/resources รายงาน audit ก่อนแก้เป็นหลักฐานของ source รุ่นก่อนหน้า ไม่ใช่ผลยืนยันการแก้รุ่นนี้
-ตั้ง `LOCAL_VIDEO_INTEGRATION=1` เพิ่มเพื่อตรวจ FFmpeg/HLS จริงและการหยุดงานเมื่อเกินงบพื้นที่ ต้องมี FFmpeg/ffprobe บนเครื่อง
-
-ใน `apps/web`: `npm run test` ตรวจคิวบันทึกประวัติ แล้ว `npm run build` และ `npm run lint`
-
-จาก root: `node scripts/check-runtime.mjs` ตรวจอัปโหลด/แปลง/สิทธิ์ HLS/worker restart กับ Docker จริง สคริปต์นี้หยุดและเปิด worker ของโปรเจกต์ จึงรันเมื่อไม่มีงานอัปโหลดของผู้ใช้อยู่ในคิว ใช้ได้เฉพาะ loopback HTTP และ APP_ENV=local สร้างบัญชี/วิดีโอทดสอบเองและล้างเมื่อจบ ไม่เปลี่ยนรหัสผ่านหรือแพ็กเกจบัญชีเดิม ตรวจเพดานคุณภาพและ 2/2/4 เครื่องเล่นจริงด้วย ผลทดสอบ HTTP ของ segment ที่ concurrency 1/5/10 บันทึกใน `test-results/runtime-load.json` ซึ่งไม่เข้า Git
-
-## ไฟล์ที่สร้างใหม่ได้
-
-`npm run build` ใน `apps/web` สร้าง `dist/` ใหม่ และ Vite/TypeScript สร้าง cache ใต้ `node_modules/` ตามการใช้งาน ไฟล์เหล่านี้ไม่ใช่ source และไม่ต้องเก็บใน Git
-Docker เสิร์ฟ build ที่อยู่ใน image จึงไม่ต้องมี `apps/web/dist/` บน host เพื่อเปิดชุด Docker
-
-## อุปกรณ์ในโปรไฟล์ผู้ใช้ — 6 ตุลาคม 2026
-
-บัญชีฟรีและสมาชิกดูเบราว์เซอร์/ระบบปฏิบัติการ เวลาเข้าสู่ระบบและหมดอายุ พร้อมออกจากระบบทีละเซสชันได้ในโปรไฟล์ มีขั้นตอนยืนยันและระบุเซสชันปัจจุบัน ส่วนนี้ไม่แสดงในโปรไฟล์แอดมิน
-
-`GET /auth/sessions` แสดงเฉพาะเซสชันของบัญชีที่เข้าสู่ระบบ (50 รายการต่อหน้า) และ `POST /auth/sessions/:sessionId/revoke` รับ `expectedUserId` เพื่อป้องกันการทำงานผิดบัญชีหลังสลับผู้ใช้ Backend ตรวจเจ้าของเซสชันและบันทึกประวัติการตัด การตัดเซสชันปัจจุบันทำให้ต้องเข้าสู่ระบบใหม่ ข้อมูลอุปกรณ์มาจาก User-Agent ไม่ใช่การตรวจฮาร์ดแวร์หรือสถานะออนไลน์สด
-
-## ภาพปกวิดีโอ
-
-หน้าอัปโหลดมีช่องภาพปกแบบไม่บังคับ รองรับ JPEG/PNG ไม่เกิน 5 MB และ 4096 พิกเซลต่อด้าน/8 ล้านพิกเซล มีตัวอย่างก่อนส่ง Backend ตรวจเนื้อหาและบันทึกใหม่เป็น JPEG เพื่อตัด metadata เก็บร่วมกับไฟล์วิดีโอและลบพร้อมวิดีโอ ภาพฉบับร่าง/ซ่อนดูได้เฉพาะแอดมิน ภาพวิดีโอเผยแพร่ดูได้ทั่วไปผ่าน `/api/videos/:id/cover` โดยไม่เปิด storage ตรง ๆ
-
-ฐานข้อมูลเดิมต้องใช้ `db/migrations/add_video_covers.sql` ก่อนเปิด API รุ่นนี้ ฐานข้อมูลใหม่ใน Docker จะใช้ migration 010 อัตโนมัติ การเลือกภาพในโหมดเดโม่เป็นตัวอย่างในฟอร์ม ไม่ได้บันทึกไฟล์จริง
-
-## HLS หลายความละเอียดและการเลือกคุณภาพ
-
-Worker สร้าง 360p/480p/720p/1080p/1440p (2K)/2160p (4K) เท่าที่ต้นฉบับรองรับ ไม่ upscale และรักษาสัดส่วนภาพ ไฟล์ขนาดเล็กหรือสัดส่วนอื่นอาจมีระดับที่ต่างออกไปตามขนาดจริง `full/index.m3u8` และ `preview/index.m3u8` เป็น master playlist แต่ละระดับมี `<height>p.m3u8` และ `segment_<height>p_000000.ts` อยู่ในโฟลเดอร์เดียวกัน ทุก playlist/segment ผ่านการตรวจสิทธิ์เดิมก่อน Nginx ส่งไฟล์
-
-เครื่องเล่นมีเมนูอัตโนมัติและความละเอียดจริงจาก HLS ใช้ hls.js เมื่อรองรับ หากใช้ native HLS จะอ่านรายการจาก master และเปลี่ยน playlist โดยเก็บตำแหน่งเล่นเดิม วิดีโอแบบเก่าที่มีระดับเดียวเล่นได้ต่อ แต่ต้องกด **แปลงหลายความละเอียด** ในคลังแอดมินเพื่อสร้างหลายระดับใหม่ มีคำยืนยันเพราะเรื่องนั้นจะรับชมไม่ได้ชั่วคราวระหว่างแปลง หลังเสร็จจะคงสถานะเผยแพร่เดิม
-
-การสร้างหลายระดับใช้เวลา CPU และพื้นที่มากขึ้น ยังใช้ข้อจำกัดงบพื้นที่/จำนวน threads เดิมและแปลงทีละระดับ จำกัด decoder threads ด้วยและใช้ zerolatency ลดการเก็บเฟรมของ encoder เพื่อให้ 4K ทำงานภายใน RAM ของ worker API กรอง master playlist และปฏิเสธ variant/segment ที่สูงกว่าสิทธิ์แพ็กเกจ
-
-## สิทธิ์แพ็กเกจที่กำหนดไว้
-
-Basic: 1080p / 2 จอพร้อมกัน, Standard: 2K / 2 จอพร้อมกัน, Premium: 4K / 4 จอพร้อมกัน ราคาเดิม 219/419/789 THB Backend กรองคุณภาพและจำกัดจอจริงแล้ว จอหนึ่งหมายถึงเครื่องเล่นหนึ่งตัวที่เปิดหน้ารับชม (รวมจอที่หยุดชั่วคราว) ผู้ดูแลระบบรับชมได้ทุกระดับและไม่จำกัดจอ
-
-ฐานข้อมูลเดิมต้องใช้ `db/migrations/allow_video_reprocessing.sql` ก่อนแปลงวิดีโอที่เผยแพร่แล้วใหม่ Migration 011 ยกเลิกข้อกำหนดที่ผูกสถานะเผยแพร่เข้ากับ ready เพื่อรักษาสถานะเผยแพร่ระหว่างเข้าคิว/แปลง หน้าเว็บและ API สื่อยังตรวจทั้ง published และ ready ก่อนเปิดให้ผู้ใช้ทั่วไป และคำสั่งเผยแพร่ด้วยตนเองยังต้อง ready
-
-
-## สิทธิ์รับชมและ worker generation
-
-ฐานข้อมูลเดิมต้องรัน `db/migrations/add_playback_leases_and_generations.sql` **หนึ่งครั้ง** ก่อนเปิด API/worker รุ่นนี้ โดยหยุด API/worker รุ่นเก่าก่อนและสำรองฐานข้อมูล ห้ามลบ volume ฐานข้อมูลใหม่ใน Compose ใช้ migration 013 อัตโนมัติ วันที่ 8 ตุลาคม 2026 ลง migration นี้กับฐานข้อมูล local เดิมแล้วหลังตรวจ backup/restore สำหรับฐานข้อมูลเครื่องอื่นให้ตรวจ schema ก่อน อย่ารัน migration 013 ซ้ำ
-
-ตัวอย่าง PowerShell จากโฟลเดอร์โปรเจกต์ หลังเปิดเฉพาะฐานข้อมูลและสำรองแล้ว:
-
-```powershell
-docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml stop api worker web
-Get-Content -Raw db/migrations/add_playback_leases_and_generations.sql | docker compose --env-file .env.local -p rachata-plus-local exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'
-docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml up -d --build
-```
-
-เครื่องเล่นขอสิทธิ์ที่ `POST /api/playback/:id` พร้อม expectedUserId; ส่ง token เดิมเพื่อต่ออายุทุก 20 วินาที; `DELETE` คืนสิทธิ์เมื่อออกจากหน้า การเปิดหน้ารับชมค้างไว้ใช้หนึ่งจอ หากปิดเครื่อง/หลุดเครือข่ายสิทธิ์หมดอายุภายใน 90 วินาที นับด้วย transaction และ user lock ป้องกันคำขอพร้อมกันเกินเพดาน เซสชันถูกลบจะยกเลิกสิทธิ์ที่ผูกไว้ทันที และตรวจสมาชิก/บัญชี/รุ่นวิดีโอใหม่ทุกคำขอสื่อ การเปลี่ยนแพ็กเกจโดยแอดมินมีผลต่อคุณภาพและจำนวนจอเดิมด้วย สื่อที่โหลดเข้าบัฟเฟอร์ไปแล้วอาจยังเล่นได้ก่อน heartbeat พบว่าถูกถอนสิทธิ์
-
-Permit อยู่ใน URL ของ HLS ที่ผูกกับ cookie/session เดิมเท่านั้น ไม่ใช่ลิงก์สาธารณะ Go/Nginx ไม่บันทึก query string ใน access log และส่ง `private, no-store` ให้สื่อทุกชิ้น Playlist ส่งผ่าน Go เพื่อกรองและเติม token; Nginx ส่ง segment ผ่าน internal route หลังตรวจสิทธิ์
-
-Worker ใช้ connection เดียวกับ PostgreSQL advisory lock สำหรับทุกคำสั่งฐานข้อมูล ห้าม reconnect เพื่อบันทึกผลรอบเดิม แต่ละ claim เพิ่ม processing_generation และเขียน `storage/<key>/jobs/g<generation>/full|preview` เมื่องานสำเร็จจะเปลี่ยน hls_generation โดยตรวจรุ่นอีกครั้ง Worker เก่าล้างได้เฉพาะ output รุ่นตัวเอง วิดีโอเก่าที่ hls_generation=0 ยังอ่านโฟลเดอร์เดิมได้; หากมีเพียง 720p ต้องแปลงใหม่จาก source ที่ความละเอียดสูงกว่านั้น
-
-## ผลตรวจ 8 ตุลาคม 2026
-
-ทดสอบ source รุ่นนี้บน Windows ด้วย Go 1.27.1, PostgreSQL 18 ที่สร้าง cluster ชั่วคราวบน loopback และ FFmpeg/ffprobe ในเครื่อง ใช้สำเนา source และข้อมูลสมมติ ไม่ใช้ฐานข้อมูล/ไฟล์วิดีโอเดิม และปิด cluster/เซิร์ฟเวอร์ทดสอบหลังจบ
-
-- `LOCAL_AUTH_INTEGRATION=1 LOCAL_VIDEO_INTEGRATION=1 go test ./... -count=1` ผ่านทั้งหมด: 68 leaf tests, 0 fail, 0 skip (รวม regression ถอนสิทธิ์ 42 กรณี)
-- `go vet ./...`, `npm run build`, `npm run lint`, `npm test`, `node --check scripts/check-runtime.mjs` และ `git diff --check` ผ่าน Build ยังแจ้ง warning ขนาด chunk ของ hls.js ซึ่งโหลดแยกเมื่อใช้เครื่องเล่น
-- ทดสอบ Basic/Standard/Premium: แข่งขันขอสิทธิ์เกิน 2/2/4 จอ, คืนสิทธิ์แล้วเปิดจอใหม่, lease หมดอายุ, token ต่างเซสชัน, ถอนสมาชิก, แอดมินลด Premium เป็น Basic และถอน session ที่ผูก lease
-- ทดสอบกรอง master และปฏิเสธ variant/segment เกินแพ็กเกจ รวมกรณีภาพจอกว้าง 2560×960 ที่ห้ามข้ามสิทธิ์ Basic ด้วย URL โดยตรง
-- แปลงไฟล์สังเคราะห์ 4K เป็น 360/480/720/1080/1440/2160p แล้วตรวจความสูงจริงใน segment ด้วย ffprobe ทั้ง full/preview
-- ตัด PostgreSQL connection ของ worker ระหว่างแปลงจริง: worker เดิมหยุดและเสีย ownership; worker ใหม่ recover และเผยแพร่ generation 2 สำเร็จ ทดสอบแยกว่าผลสำเร็จ/ความล้มเหลว/cleanup รุ่นเก่าไม่เปลี่ยนสถานะหรือ output รุ่นใหม่
-- เบราว์เซอร์กับ API/DB ทดสอบจริง: login กลับหน้าแรก, เลือกและเล่น 1080p, Basic เปิดรับชมได้สองแท็บ ปฏิเสธแท็บที่สาม และเปิดแท็บที่สามได้หลังออกจากหน้ารับชมแท็บแรก
-
-ผลข้างต้นเป็นรอบทดสอบ source ก่อนเปิด Docker ส่วนผลของ stack จริงอยู่ด้านล่าง ขอบเขตที่ยังต้องตรวจ: native HLS บน Safari/iOS, capacity บน EC2/เครือข่ายจริง, CVE ของ dependency แบบอัปเดต และ accessibility ด้วย screen reader/zoom จริง ผลนี้ไม่ได้ยืนยันว่า production หรือ WCAG ครบทั้งหมดพร้อมแล้ว
-
-งานก่อน deploy: เตรียมโดเมน/HTTPS, backup ที่เก็บแยกจากเครื่องหลัก, สิทธิ์และ secrets สำหรับ production และวัด CPU/RAM/พื้นที่/จำนวนผู้ชมบนขนาด EC2 ที่เลือก ส่วน checkout ปัจจุบันยังเป็นเดโม่ใน local; หากจะขายแพ็กเกจต้องทำการชำระเงินจริงแยกต่างหาก
-
-## Backup/restore ของชุด local
-
-รันจาก root เมื่อไม่มีงานผู้ใช้ค้าง โดยหยุดตัวเขียนก่อน ทั้งสองสคริปต์ใช้ฐานข้อมูลใน container ของ `rachata-plus-local` เท่านั้น ไม่อ่านค่า RDS และไม่ใช้ AWS:
-
-```powershell
-docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml stop api worker web
+```sh
 node scripts/backup-local-db.mjs
 node scripts/backup-local-media.mjs
-docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml up -d
 ```
 
-DB ใช้ pg_dump/pg_restore ของ PostgreSQL ใน container สำรองเป็น binary dump กู้คืนลงฐานข้อมูลชื่อสุ่มใหม่ ตรวจจำนวนแถว/คอลัมน์/constraints แล้วล้างฐานข้อมูลทดสอบ ไม่เขียนทับฐานข้อมูลจริง Media สำรองเป็น tar กู้คืนลงโฟลเดอร์ใหม่ใต้ backups และตรวจ SHA256 ทุกไฟล์ โฟลเดอร์ตรวจ restore เก็บไว้ให้ตรวจด้วยตนเอง สคริปต์ไม่ได้ลบทิ้งอัตโนมัติ
+หยุดตัวเขียนตลอดการสำรองทั้งคู่ เปิดกลับเมื่อสำเร็จ สคริปต์ DB ใช้ฐานข้อมูลชั่วคราวตรวจ restore; media ตรวจ checksum และเก็บโฟลเดอร์ตรวจ restore ไว้ ต้องปรับวิธีสำรองให้ตรงกับเครื่อง AWS และเก็บสำเนาแยกเครื่อง
 
-ไฟล์ dump, tar และ JSON สรุปอยู่ใน `backups/` ซึ่งไม่เข้า Git; dump มีข้อมูลบัญชีและ password hash ให้เก็บเป็นข้อมูลส่วนตัว เมื่อสำรอง DB และ media เป็นคู่ต้องหยุดตัวเขียนตลอดทั้งสองคำสั่ง และตรวจว่าสคริปต์ทั้งคู่สำเร็จก่อนเปิดระบบกลับ
+## จัดชุด source ส่งงาน
 
-ค่า local ที่ใช้ทดสอบรอบนี้คือ `SHARE_AUTH_ORIGIN=http://127.0.0.1:8088` และ `SHARE_COOKIE_SECURE=false` สำหรับ HTTP ในเครื่องเท่านั้น เมื่อใช้โดเมน HTTPS ต้องตั้ง origin ให้ตรงกับ URL และเปิด secure cookie ใหม่
+เก็บไฟล์ source, migrations, Docker/Compose, lockfiles และตัวอย่าง env ไม่แนบ `.env`, `.env.local`, `.git`, `backups`, `node_modules`, `dist`, `test-results` หรือ `.archify` ส่วน `storage` ส่งเฉพาะสื่อที่ตั้งใจแนบและมีสิทธิ์เผยแพร่ ข้อมูลบัญชีและ avatar อยู่ในฐานข้อมูล ไม่ได้รวมใน source
 
-## ผลตรวจ Docker จริง — 8 ตุลาคม 2026
+ยังไม่ได้ยืนยันการ deploy AWS หรือ production readiness การผ่าน build ไม่แทนการตรวจ runtime, capacity หรือ WCAG ทั้งหมด
 
-- สำรอง DB เดิมก่อนใช้ migration 013 และสำรอง DB หลัง migration อีกครั้ง ตรวจ restore ลงฐานข้อมูลใหม่ผ่านทั้งสองชุด จำนวนแถว/คอลัมน์/constraints ตรงกัน ไม่ลบ data volume
-- สำรอง media เป็น tar ขนาดประมาณ 225 MB กู้คืนและตรวจ SHA256 ของทั้ง 92 ไฟล์ตรงกัน รวม source/HLS/ภาพปก ข้อมูล avatar อยู่ใน DB dump
-- Rebuild images และตรวจ Nginx config ผ่าน PostgreSQL 17.11 กับ API/worker/Nginx ขึ้น healthy รัน user 10001 และ read-only root filesystem ตาม Compose
-- Go integration บน PostgreSQL 17 ผ่าน 68 leaf tests, 0 fail, 0 skip (63.269 วินาที) หลังหยุด Compose worker ก่อนทดสอบ ปรับ regression ให้รอการคืน lock หลัง pg_terminate_backend ซึ่งอาจยังไม่เสร็จทันทีที่ได้รับ response
-- `node scripts/check-runtime.mjs` ผ่านบน image สุดท้าย: API รับอัปโหลดโดยไม่ต้องมี FFmpeg; worker แยกแปลง HLS; Nginx ส่งสื่อหลังตรวจสิทธิ์; HEAD/Range ใช้ได้; URL internal/source/.env ถูกกั้น; หยุด worker แล้วงานกู้คืนได้; ลบระหว่างแปลงแล้วไฟล์ถูกล้าง; ซ่อนวิดีโอแล้วคำขอสื่อใหม่ถูกปฏิเสธ
-- แปลงไฟล์สังเคราะห์ 4K ใน worker ที่จำกัด RAM 1 GiB และตรวจ segment ด้วย ffprobe ได้ 360/480/720/1080/1440/2160p จริง Basic/Standard/Premium กรองคุณภาพสูงสุด 1080/1440/2160p และรับเครื่องเล่นได้ 2/2/4 ตัวจริง คำขอเกินเพดานถูกปฏิเสธ คืนสิทธิ์แล้วเปิดใหม่ได้
-- แก้ตัวตรวจพื้นที่ให้ไม่ถือการ cancel ระหว่างปิด monitor หลัง codec จบเป็น storage failure และเพิ่ม log สาเหตุภายในของ worker โดยไม่บันทึก codec stderr, cookie หรือ playback token
-- สคริปต์ทดสอบสร้างบัญชีพร้อมรหัสผ่านสุ่มเองและล้างบัญชี/สมาชิก/วิดีโอ/ไฟล์ fixture เมื่อจบ ตรวจ syntax ของทั้งสามสคริปต์, go vet และ git diff --check ผ่าน
+## เจ้าของระบบและแอดมิน
 
-HTTP full-segment check ใช้สิทธิ์รับชมหนึ่งเครื่องเล่นและยิงคำขอ 5 วินาทีต่อระดับผ่าน loopback บน Windows Docker Desktop ไม่มีคำขอล้มเหลว:
+Migration 014 (`db/migrations/add_admin_controls_and_video_edits.sql`) เพิ่มระดับสิทธิ์โดยคง role เดิมเป็น `user`/`admin` และเพิ่ม `admin_level` เป็น `owner`/`admin` สำหรับแอดมิน บัญชี admin เดิมจะเป็นเจ้าของระบบ ตรวจ schema ก่อนใช้ migration นี้เพียงครั้งเดียว สำรอง/ตรวจ restore และหยุด API/worker รุ่นเก่าก่อนลง ไม่ลบ volume
 
-| คำขอพร้อมกัน | คำขอที่สำเร็จ | p50 | p95 | เวลาที่วัด |
-| --- | --- | --- | --- | --- |
-| 1 | 151 | 31 ms | 44 ms | 5.005 s |
-| 5 | 689 | 35 ms | 55 ms | 5.033 s |
-| 10 | 885 | 50 ms | 103 ms | 5.101 s |
+- เจ้าของระบบแต่งตั้งหรือถอดแอดมิน/เจ้าของระบบ จัดการสมาชิก วิดีโอ และลบบัญชีได้ เปลี่ยน role หรือลบบัญชีตัวเองผ่านคำสั่งแอดมินไม่ได้ จึงไม่สามารถทำให้เจ้าของระบบคนสุดท้ายหายไปผ่านหน้าเว็บ
+- แอดมินจัดการวิดีโอและบัญชีผู้ใช้ทั่วไปได้ แต่แก้สิทธิ์ ลบ หรือจัดการบัญชีแอดมินคนอื่นไม่ได้ รีเซ็ตรหัสผ่านให้ผู้ใช้ทั่วไปได้
+- เปลี่ยน role/รีเซ็ตรหัสผ่าน/ลบบัญชีต้องยืนยันรหัสผ่านผู้ดำเนินการ และตรวจ revision ก่อนบันทึก มี audit ใน `membership_events` ไม่เก็บรหัสผ่านใน audit ทุกคำสั่งนี้ยกเลิก session/สิทธิ์รับชมเดิมของเป้าหมาย
+- รีเซ็ตรหัสผ่านกำหนดค่าใหม่ 8–128 ตัวอักษร แจ้งเจ้าของบัญชีผ่านช่องทางส่วนตัว ให้ผู้ใช้เปลี่ยนอีกครั้งในโปรไฟล์ ระบบยังไม่มีการส่งอีเมลรีเซ็ตหรือบังคับเปลี่ยนครั้งแรก
+- ลบบัญชีต้องพิมพ์อีเมลยืนยัน ล้างชื่อ อีเมล รูป รหัสผ่าน ประวัติและดูภายหลัง พร้อมยกเลิกสมาชิก/เซสชัน บัญชีจะถูกซ่อนและเปิดคืนผ่านเว็บไม่ได้ เก็บแถวที่ไม่ระบุตัวตนเพื่อให้ audit เดิมอ้างอิงได้ ไม่ใช่การลบประวัติ audit หรือสำเนา backup ที่เคยสร้างไว้
+- คลังวิดีโอมีปุ่มแก้ชื่อ คำอธิบาย หมวดหมู่ และภาพปก โดยไม่เปลี่ยนไฟล์ต้นฉบับ/สถานะเผยแพร่หรือแปลง HLS ใหม่ ตรวจ metadata revision เพื่อกันการบันทึกทับจากหน้าเก่า
+- ภาพปกที่เลือกถูกย่ออัตโนมัติและ normalize เป็น JPEG ใน local เก็บภาพแก้ไขใน PostgreSQL และภาพอัปโหลดเดิมใน storage ส่วนโหมด AWS เก็บใน S3 โดยมีงบ decoder ป้องกัน RAM เต็ม การสำรอง DB และ media/object versions ยังต้องเก็บเป็นคู่
 
-นี่เป็นการทดสอบ HTTP กับ segment เดียวบนเครื่อง local ไม่ใช่จำนวนผู้ชมจริงหรือผล capacity ของ EC2 ตัวอย่าง resource ระหว่างแปลง: worker ใช้ประมาณหนึ่ง CPU และ RAM 98 MiB; เป็นค่าขณะหนึ่ง ไม่ใช่ค่าสูงสุดของทุกประเภทไฟล์ ก่อนเลือกเครื่องจริงยังต้องทดสอบคลิปที่ใช้งานจริง ระยะเวลายาว/4K, เครือข่ายภายนอก และการชมหลายอุปกรณ์
+Dashboard ใช้ GET /auth/admin/dashboard เฉพาะแอดมิน ไม่ cache และอ่านข้อมูลใน transaction เดียว สมาชิกนับบัญชีปกติที่มี subscription active และอยู่ในช่วงเวลาใช้งาน ไม่นับบัญชี/วิดีโอที่ลบแล้ว กิจกรรมบัญชีมาจาก membership_events ส่วนวิดีโอแสดงการอัปเดตล่าสุดของแต่ละรายการ ไม่ใช่ audit ประวัติการแก้ไขทุกครั้ง เมื่อ API ล้มเหลวจะแสดงข้อผิดพลาด ไม่มีข้อมูลจำลองทดแทน
 
-หลักฐานอยู่ใน `test-results/go-postgres17.jsonl`, `test-results/runtime-load.json`, `test-results/docker-resource-sample.txt` และไฟล์ JSON ประกอบ backup ทุกอย่างในโฟลเดอร์ผลทดสอบ/backup ไม่เข้า Git การลบโฟลเดอร์ตรวจ restore `backups/restore-media-3ps3Jo` ถูกระบบอนุมัติอัตโนมัติปฏิเสธ (`blocked by policy`) จึงเก็บไว้พร้อมสำเนาไฟล์ที่ตรวจแล้ว
-
-สถานะหลังตรวจ: stack local เปิดไว้ที่ `http://127.0.0.1:8088/`; ยังไม่ได้ deploy หรือสร้างบริการ AWS งานต่อไปคือจัดค่ารัน production/HTTPS/secrets บนโดเมนและ EC2 ที่ผู้ใช้เลือก แล้วตรวจ backup ภายนอกเครื่อง, health monitoring และ capacity บนเครื่องนั้น
+local เอาเพดานวิดีโอ 100 MB และข้อจำกัดภาพต้นฉบับเดิมออกแล้ว Nginx local ไม่กำหนด client_max_body_size แต่ API ยังคงงบพื้นที่ MEDIA_JOB_BYTES/พื้นที่รวม/พื้นที่ว่างของเครื่อง (local 1 GiB ต่อ job, 10 GiB รวม) และ Cloudflare อาจจำกัด request ก่อนถึงแอป โหมด AWS ส่งต้นฉบับตรง S3 แบบแบ่งส่วน ส่วน API/Nginx รับ metadata กับภาพที่ย่อแล้ว ไม่ได้เปิด request body ทุกชนิดแบบไร้ขอบเขต

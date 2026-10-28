@@ -1,9 +1,17 @@
+import { EditVideoDialog } from '../components/EditVideoDialog'
 import { useEffect, useRef, useState } from 'react'
 import { Icon, Skeleton } from '../components/UI'
 import type { PublicationStatus, Video } from '../types'
 import { apiVideosEnabled } from '../lib/videos'
 
 const labels: Record<PublicationStatus, string> = { draft: 'ฉบับร่าง', published: 'เผยแพร่แล้ว', hidden: 'ซ่อน' }
+
+function AdminCover({ url }: { url?: string }) {
+  const [failed, setFailed] = useState(false)
+  return <div className="admin-cover" aria-hidden="true">{url && !failed
+    ? <img src={url} alt="" loading="lazy" onError={() => setFailed(true)} />
+    : <Icon name="play" />}</div>
+}
 
 function DeleteVideoDialog({ video, onCancel, onConfirm }: { video: Video; onCancel: () => void; onConfirm: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -22,7 +30,6 @@ function DeleteVideoDialog({ video, onCancel, onConfirm }: { video: Video; onCan
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
   }}>
-    <div className="rp-eyebrow" lang="en">Delete video</div>
     <h2 id="delete-title">ลบวิดีโอนี้?</h2>
     <p className="delete-video-name">{video.title}</p>
     <p id="delete-description">วิดีโอจะถูกนำออกจากรายการและดูภายหลัง{apiVideosEnabled ? ' และลบไฟล์ในเครื่อง การลบนี้ไม่สามารถย้อนกลับได้' : ' การลบในรอบเดโม่นี้ไม่สามารถย้อนกลับได้'}</p>
@@ -30,12 +37,14 @@ function DeleteVideoDialog({ video, onCancel, onConfirm }: { video: Video; onCan
   </dialog>
 }
 
-export function AdminVideosPage({ videos, loading, onStatusChange, onDelete, onRetry }: {
-  videos: Video[]; loading: boolean;
+export function AdminVideosPage({ videos, loading, onStatusChange, onDelete, onRetry, actorId, onEdited }: {
+  videos: Video[]; loading: boolean; actorId: number; onEdited: (video: Video) => void;
   onStatusChange: (id: number, status: PublicationStatus) => void | Promise<void>;
   onDelete: (id: number) => void | Promise<void>;
   onRetry: (id: number) => Promise<void>;
 }) {
+  const [editing, setEditing] = useState<Video | null>(null)
+  const editTrigger = useRef<HTMLButtonElement | null>(null)
   const [filter, setFilter] = useState<PublicationStatus | 'all'>('all')
   const [query, setQuery] = useState('')
   const [deleting, setDeleting] = useState<Video | null>(null)
@@ -56,7 +65,7 @@ export function AdminVideosPage({ videos, loading, onStatusChange, onDelete, onR
     finally { setBusy(false) }
   }
   return <main className="rp-page admin-videos">
-    <div className="admin-heading rp-page-heading"><div><div className="rp-eyebrow" lang="en">Content studio</div><h1 ref={heading} tabIndex={-1}>จัดการวิดีโอ</h1><p>ดูแลรายการและเลือกวิดีโอที่จะแสดงให้สมาชิกเห็น</p></div><a href="#/admin/upload" className="rp-mainbutton rp-linkbutton"><Icon name="upload" />อัปโหลดวิดีโอ</a></div>
+    <div className="admin-heading rp-page-heading"><div><h1 ref={heading} tabIndex={-1}>จัดการวิดีโอ</h1><p>ดูแลรายการและเลือกวิดีโอที่จะแสดงให้สมาชิกเห็น</p></div><a href="#/admin/upload" className="rp-mainbutton rp-linkbutton"><Icon name="upload" />อัปโหลดวิดีโอ</a></div>
     <div className="admin-stat-grid" aria-label="สรุปวิดีโอ">
       {(['all', 'published', 'hidden', 'draft'] as const).map(value => <div className="admin-stat" key={value}><span>{value === 'all' ? 'วิดีโอทั้งหมด' : labels[value]}</span><strong>{loading ? '—' : value === 'all' ? videos.length : videos.filter(video => video.publicationStatus === value).length}</strong></div>)}
     </div>
@@ -66,13 +75,14 @@ export function AdminVideosPage({ videos, loading, onStatusChange, onDelete, onR
       {loading ? <div aria-label="กำลังโหลดคลังวิดีโอ">{[0, 1, 2].map(id => <div className="admin-row" key={id}><Skeleton shape="admin-row" /></div>)}</div> : results.length ? <>
         <p className="admin-result-count">{results.length} รายการ</p>
         <ul className="admin-video-list">{results.map(video => <li className="admin-row" key={video.id}>
-          <div className="admin-cover" aria-hidden="true"><Icon name="play" /></div>
+          <AdminCover key={video.coverUrl} url={video.coverUrl} />
           <div className="admin-video-info"><h2>{video.title}</h2><span>{video.category}</span><span className={`admin-status status-${video.publicationStatus}`}>{labels[video.publicationStatus]}</span>{video.processingStatus && <span>{({ pending: 'รอแปลงไฟล์', processing: 'กำลังแปลง HLS', ready: 'พร้อมรับชม', failed: 'แปลงไม่สำเร็จ' })[video.processingStatus]}</span>}{video.processingError && <span className="auth-error">{video.processingError}</span>}</div>
-          <div className="admin-row-actions"><a href={`#/videos/${video.id}`} className="rp-softbutton rp-linkbutton" aria-label={`ดูรายละเอียด ${video.title}`}>ดูรายละเอียด</a>{(video.processingStatus === 'failed' || video.processingStatus === 'ready') && <button type="button" className="rp-softbutton" disabled={busy} onClick={async () => { if (video.processingStatus === 'ready' && !window.confirm('แปลงวิดีโอเป็นหลายความละเอียดใหม่? วิดีโอเรื่องนี้จะรับชมไม่ได้ชั่วคราวระหว่างแปลง')) return; setBusy(true); try { await onRetry(video.id); setNotice('ส่งวิดีโอเข้าคิวใหม่แล้ว') } catch { setNotice('ส่งเข้าคิวไม่สำเร็จ กรุณาลองใหม่') } finally { setBusy(false) } }}>{video.processingStatus === 'ready' ? 'แปลงหลายความละเอียด' : 'ลองแปลงใหม่'}</button>}{video.publicationStatus === 'published' ? <button type="button" className="rp-softbutton" disabled={busy} aria-label={`ซ่อน ${video.title}`} onClick={() => void changeStatus(video, 'hidden')}>ซ่อน</button> : <button type="button" className="rp-softbutton" disabled={busy || (apiVideosEnabled && video.processingStatus !== 'ready')} aria-label={`เผยแพร่ ${video.title}`} onClick={() => void changeStatus(video, 'published')}>เผยแพร่</button>}<button type="button" className="admin-delete-button" disabled={busy} aria-label={`ลบ ${video.title}`} onClick={event => { deleteTrigger.current = event.currentTarget; setDeleting(video) }}>ลบ</button></div>
+          <div className="admin-row-actions">{apiVideosEnabled && <button type="button" className="rp-softbutton" disabled={busy} onClick={event => { editTrigger.current = event.currentTarget; setEditing(video) }}>แก้ไขข้อมูล / ภาพปก</button>}<a href={`#/videos/${video.id}`} className="rp-softbutton rp-linkbutton" aria-label={`ดูรายละเอียด ${video.title}`}>ดูรายละเอียด</a>{(video.processingStatus === 'failed' || video.processingStatus === 'ready') && <button type="button" className="rp-softbutton" disabled={busy} onClick={async () => { if (video.processingStatus === 'ready' && !window.confirm('แปลงวิดีโอเป็นหลายความละเอียดใหม่? วิดีโอเรื่องนี้จะรับชมไม่ได้ชั่วคราวระหว่างแปลง')) return; setBusy(true); try { await onRetry(video.id); setNotice('ส่งวิดีโอเข้าคิวใหม่แล้ว') } catch { setNotice('ส่งเข้าคิวไม่สำเร็จ กรุณาลองใหม่') } finally { setBusy(false) } }}>{video.processingStatus === 'ready' ? 'แปลงหลายความละเอียด' : 'ลองแปลงใหม่'}</button>}{video.publicationStatus === 'published' ? <button type="button" className="rp-softbutton" disabled={busy} aria-label={`ซ่อน ${video.title}`} onClick={() => void changeStatus(video, 'hidden')}>ซ่อน</button> : <button type="button" className="rp-softbutton" disabled={busy || (apiVideosEnabled && video.processingStatus !== 'ready')} aria-label={`เผยแพร่ ${video.title}`} onClick={() => void changeStatus(video, 'published')}>เผยแพร่</button>}<button type="button" className="admin-delete-button" disabled={busy} aria-label={`ลบ ${video.title}`} onClick={event => { deleteTrigger.current = event.currentTarget; setDeleting(video) }}>ลบ</button></div>
         </li>)}</ul>
       </> : <div className="admin-empty"><h2>{videos.length ? 'ไม่พบวิดีโอที่ตรงกัน' : 'ยังไม่มีวิดีโอในคลัง'}</h2><p>{videos.length ? 'ลองเปลี่ยนคำค้นหรือเลือกทุกสถานะ' : 'เริ่มจากอัปโหลดวิดีโอ แล้วเผยแพร่เมื่อพร้อม'}</p>{videos.length ? <button className="rp-softbutton" type="button" onClick={() => { setQuery(''); setFilter('all'); requestAnimationFrame(() => document.getElementById('admin-search')?.focus()) }}>ล้างตัวกรอง</button> : <a className="rp-softbutton rp-linkbutton" href="#/admin/upload">อัปโหลดวิดีโอแรก</a>}</div>}
     </section>
     <p className="rp-demo-note">{apiVideosEnabled ? 'บันทึกข้อมูลในฐานข้อมูลบนเครื่อง เผยแพร่ได้เมื่อแปลงเสร็จแล้ว' : 'การเปลี่ยนสถานะและลบเป็นการจำลอง ข้อมูลจะกลับค่าเริ่มต้นเมื่อรีเฟรชหน้า'}</p>
+    {editing && <EditVideoDialog video={editing} actorId={actorId} onClose={() => { setEditing(null); requestAnimationFrame(() => editTrigger.current?.focus()) }} onSaved={video => { onEdited(video); setNotice("บันทึกข้อมูลวิดีโอแล้ว") }} />}
     {deleting && <DeleteVideoDialog video={deleting} onCancel={() => { if (busy) return; setDeleting(null); requestAnimationFrame(() => deleteTrigger.current?.focus()) }} onConfirm={async () => {
       if (busy) return
       setBusy(true)

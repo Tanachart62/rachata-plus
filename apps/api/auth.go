@@ -28,6 +28,7 @@ type attemptWindow struct {
 	reset time.Time
 }
 type authConfig struct {
+	store             *objectStorage
 	origin            string
 	secure            bool
 	dummyHash         string
@@ -133,6 +134,7 @@ func (a *authConfig) protectWrites() gin.HandlerFunc {
 }
 
 type accountResponse struct {
+	AdminLevel         string `json:"adminLevel"`
 	AccountStatus      string `json:"accountStatus"`
 	ID                 int64  `json:"id"`
 	Username           string `json:"username"`
@@ -202,7 +204,7 @@ func (a *authConfig) loginHandler(db *pgxpool.Pool) gin.HandlerFunc {
 		defer tx.Rollback(context.Background())
 		err = tx.QueryRow(ctx, `SELECT u.id,u.username,u.name,u.email,u.role,u.password_hash,`+membershipColumns+
 			` FROM users u `+membershipJoin+` WHERE lower(trim(u.email))=$1 FOR UPDATE OF u`, req.Email).
-			Scan(&user.ID, &user.Username, &user.Name, &user.Email, &user.Role, &passwordHash, &user.Member, &user.Plan, &user.ExpiresAt, &user.MembershipRevision, &user.AccountStatus)
+			Scan(&user.ID, &user.Username, &user.Name, &user.Email, &user.Role, &passwordHash, &user.Member, &user.Plan, &user.ExpiresAt, &user.MembershipRevision, &user.AccountStatus, &user.AdminLevel)
 		missing := errors.Is(err, pgx.ErrNoRows)
 		if err != nil && !missing {
 			c.JSON(503, gin.H{"error": "database_unavailable"})

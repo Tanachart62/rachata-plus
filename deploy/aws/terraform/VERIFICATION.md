@@ -36,3 +36,11 @@
 - ทดสอบ parser/checksum ด้วย fixtures ทั้งสองรูปแบบผ่าน และไฟล์ที่แก้ไขถูกปฏิเสธ; bash syntax ผ่าน
 - Pin Git source รุ่นแก้ไขใน Terraform/example/local configuration เพื่อไม่ให้ ASG เครื่องใหม่ดึง script รุ่นที่ล้มเหลว
 - ยังต้องรัน helper รุ่นใหม่บน EC2 ให้ build ผ่าน แล้ว update Launch Template/ASG ที่ยังมี desired=0 ก่อนเปิดแอป
+
+## แก้ Nginx permissions วันที่ 29 ตุลาคม 2026
+
+- Migration EC2 ดึง/build API และ Worker แล้ว แต่ web image ล้มที่ nginx -t เพราะ Git checkout ภายใต้ umask077 ทำให้ nginx.conf เป็น mode0600 และ user10001 อ่านไม่ได้
+- กำหนด COPY --chmod=0644 สำหรับ image config และสิทธิ์อ่าน static assets; release archive normalize whitelisted runtime files เป็น0644 และ bootstrap chmod เฉพาะ Nginx bind-mounted config เป็น0644 โดย runtime.env ยัง0600
+- Build Docker image จาก tar context ที่กำหนดทุก source file เป็น0600 ผ่าน แล้วทดสอบ container user10001 อ่าน config/index.html และ nginx -t ผ่าน
+- ตรวจ release20ไฟล์ mode0644/no secrets และ mock bootstrap chmod ของ config/CA/secrets ผ่าน
+- Pin Git commit รุ่นแก้ไขใน Terraform และ local config; ยังต้องรัน helper ใหม่บน EC2 และ update LT/ASG ก่อนเปิดแอป

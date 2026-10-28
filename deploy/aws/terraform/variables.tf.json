@@ -57,7 +57,7 @@
     "git_commit": {
       "type": "string",
       "description": "Pinned public GitHub commit used by every node",
-      "default": "b56163605fee688b1575190315b7668c795d9951",
+      "default": "b35233dbdbc39cd6f8c68fec293750e49e74bfe7",
       "validation": [
         {
           "condition": "${can(regex(\"^[a-f0-9]{40}$\", var.git_commit))}",

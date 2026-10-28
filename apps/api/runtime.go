@@ -63,10 +63,16 @@ func readRuntimeConfig() (runtimeConfig, error) {
 			return r, fmt.Errorf("production requires MEDIA_BACKEND=s3, MEDIA_DELIVERY=direct and DB_SSLMODE=verify-full")
 		}
 		// Validate HTTPS/cookie settings even in the separate worker process.
-		if os.Getenv("COOKIE_SECURE") != "true" {
+		secureValue := "true"
+		if os.Getenv("AWS_HTTP_DEMO") == "true" {
+			if !awsHTTPDemoOrigin(os.Getenv("AUTH_ORIGIN")) || os.Getenv("COOKIE_SECURE") != "false" {
+				return r, fmt.Errorf("AWS HTTP demo requires an HTTP ALB origin and COOKIE_SECURE=false")
+			}
+			secureValue = "false"
+		} else if os.Getenv("COOKIE_SECURE") != "true" {
 			return r, fmt.Errorf("production requires COOKIE_SECURE=true and HTTPS")
 		}
-		if _, err := newAuthConfig(os.Getenv("AUTH_ORIGIN"), "true"); err != nil {
+		if _, err := newAuthConfig(os.Getenv("AUTH_ORIGIN"), secureValue); err != nil {
 			return r, err
 		}
 		if r.worker != "external" {

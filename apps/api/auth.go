@@ -10,6 +10,8 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +41,15 @@ type authConfig struct {
 	nextCapacitySweep time.Time
 }
 
+var awsALBHost = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*\.(us-east-1|us-west-2)\.elb\.amazonaws\.com$`)
+
+// Explicit classroom-demo exception; production HTTPS remains the default.
+func awsHTTPDemoOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	return err == nil && os.Getenv("APP_ENV") == "production" && os.Getenv("AWS_HTTP_DEMO") == "true" &&
+		u.Scheme == "http" && u.User == nil && u.Port() == "" && u.Path == "" && u.RawQuery == "" && u.Fragment == "" && awsALBHost.MatchString(u.Host)
+}
+
 func newAuthConfig(origin, secureValue string) (*authConfig, error) {
 	parsed, err := url.Parse(origin)
 	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
@@ -47,7 +58,7 @@ func newAuthConfig(origin, secureValue string) (*authConfig, error) {
 	if secureValue != "true" && secureValue != "false" {
 		return nil, fmt.Errorf("COOKIE_SECURE must be true or false")
 	}
-	if secureValue == "false" && (parsed.Scheme != "http" || (parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "::1")) {
+	if secureValue == "false" && !awsHTTPDemoOrigin(origin) && (parsed.Scheme != "http" || (parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "::1")) {
 		return nil, fmt.Errorf("insecure cookies are allowed only for local HTTP development")
 	}
 	if secureValue == "true" && parsed.Scheme != "https" {

@@ -27,12 +27,16 @@ parser.add_argument('--web-image', required=True)
 parser.add_argument('--worker-image', required=True)
 parser.add_argument('--log-group', required=True)
 parser.add_argument('--image-source', choices=['ecr', 'local'], default='ecr', help='local: images built from a pinned Git commit on this EC2')
+parser.add_argument('--allow-http-demo', action='store_true', help='Classroom demo on an AWS ALB DNS hostname; HTTP cookies are not encrypted')
 parser.add_argument('--prepare-only', action='store_true', help='Migration host: fetch config/images without starting services')
 args = parser.parse_args()
 root = Path('/opt/rachata-plus')
 os.chdir(root)
 os.umask(0o077)
-if not re.fullmatch(r'https://[A-Za-z0-9.-]+', args.origin):
+http_demo = args.allow_http_demo
+if http_demo and not re.fullmatch(r'http://[a-z0-9][a-z0-9-]*\.' + re.escape(args.region) + r'\.elb\.amazonaws\.com', args.origin):
+    raise SystemExit('HTTP demo requires the exact ALB HTTP origin in the selected region')
+if not http_demo and not re.fullmatch(r'https://[A-Za-z0-9.-]+', args.origin):
     raise SystemExit('An HTTPS origin without path is required')
 images = [args.api_image, args.web_image, args.worker_image]
 for image in images:
@@ -47,7 +51,8 @@ secret = json.loads(command(['aws', 'secretsmanager', 'get-secret-value', '--sec
 secrets = root / 'secrets'
 secrets.mkdir(mode=0o700, exist_ok=True)
 values = {
-    'APP_ENV': 'production', 'AUTH_ORIGIN': args.origin, 'COOKIE_SECURE': 'true',
+    'APP_ENV': 'production', 'AUTH_ORIGIN': args.origin, 'COOKIE_SECURE': 'false' if http_demo else 'true',
+    'AWS_HTTP_DEMO': 'true' if http_demo else 'false',
     'HTTP_ADDR': '0.0.0.0:8080', 'DB_HOST': args.db_host, 'POSTGRES_PORT': '5432',
     'POSTGRES_DB': secret['dbname'], 'POSTGRES_USER': secret['username'], 'POSTGRES_PASSWORD': secret['password'],
     'DB_SSLMODE': 'verify-full', 'DB_SSLROOTCERT': '/run/secrets/rds-ca.pem', 'DB_MAX_CONNS': '10',

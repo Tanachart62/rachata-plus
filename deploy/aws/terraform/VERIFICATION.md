@@ -56,3 +56,13 @@
 - URL ณ เวลาตรวจ: http://rachata-alb-1193229672.us-east-1.elb.amazonaws.com (Learner Lab ชั่วคราว ไม่รับประกันเปิดต่อเนื่อง)
 - ยังไม่ได้ยืนยัน login/playback/upload ผ่าน browser หลัง deploy, การจำกัดแพ็กเกจ/จำนวนจอข้ามEC2, scale-out/instance replacement, RDS failover, capacity หรือ backup/restore ชุดหลัง cutover บน AWS ต้องทดสอบก่อนสรุปผ่านทุก flow
 - เครื่อง migration ยังเก็บไว้ระหว่างตรวจรับ ไม่ได้ลบไฟล์ local/storage/backups หรือ state
+
+
+## เปลี่ยน favicon บน AWS วันที่ 29 ตุลาคม 2026
+
+- เว็บใช้ Git commit `5c70f04f940ecf11d1c207914a3a3bfb943b0a0e` ผ่าน `web_git_commit`; Worker ยังใช้ `b35233dbdbc39cd6f8c68fec293750e49e74bfe7`
+- `npm run build` ผ่าน มีคำเตือนขนาด chunk ของ hls.js เดิม; Terraform validate ผ่าน และ apply เปลี่ยนเฉพาะ Web Launch Template/ASG: 0 added, 2 changed, 0 destroyed
+- Learner Lab ปฏิเสธ StartInstanceRefresh ด้วย SCP จึงใช้ UpdateAutoScalingGroup/SSM ทยอยอัปเดตคอนเทนเนอร์ เพิ่มเว็บสำรองหนึ่งเครื่อง และ deregister/drain ทีละเครื่องก่อน restart โดยเก็บเว็บ healthy อย่างน้อยสองเครื่องระหว่างอัปเดต
+- หลังเสร็จคืน Web ASG เป็น min2/desired2/max3 และ health check แบบ ELB; ตรวจ target ทั้งสอง healthy และ Worker instance เดิมยังทำงานโดยไม่ได้เปลี่ยนรุ่น
+- ตรวจ HTML และ favicon ผ่าน ALB ซ้ำสามรอบได้ HTTP200, Content-Type image/jpeg และ SHA256 ตรงรูปต้นฉบับ `452df4c85d82e34549091bd81fd33cda2d47884bbdc9cb5b42c0006ca8585a64`; `/ready` ตอบ200
+- Terraform plan หลังคืน capacity รายงาน No changes; การตรวจรอบนี้ยืนยันเฉพาะ release/favicon/health ข้างต้น ไม่ได้ทดสอบทุก flow ของระบบใหม่

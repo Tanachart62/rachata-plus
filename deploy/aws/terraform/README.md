@@ -6,7 +6,7 @@
 
 โค้ดแอปถูกดึงจาก GitHub commit `b35233dbdbc39cd6f8c68fec293750e49e74bfe7` และ build Docker บน EC2 ไม่ต้องใช้ ECR หรืออัปโหลด source release ไป S3 ไฟล์ User Data ถูกกรอกค่า resource IDs ให้อัตโนมัติ
 
-`git_commit` ใช้เป็นรุ่นหลัก/Worker ส่วน `web_git_commit` ใช้ pin รุ่นเฉพาะเครื่องเว็บได้ หากเป็นค่าว่างจะใช้ `git_commit` เดียวกัน ตัวอย่างล่าสุดแยกรุ่นเว็บที่เพิ่ม favicon เพื่อไม่ต้องเปลี่ยน Worker เมื่ออัปเดตเฉพาะ frontend
+`git_commit` ใช้เป็นรุ่นหลัก/Worker ส่วน `web_git_commit` ใช้ pin รุ่นเฉพาะเครื่องเว็บที่รันทั้ง Nginx และ API ได้ หากเป็นค่าว่างจะใช้ `git_commit` เดียวกัน ตัวอย่างล่าสุดแยกรุ่นเว็บที่เพิ่ม favicon เพื่อไม่ต้องเปลี่ยน Worker เมื่ออัปเดตเฉพาะ frontend
 
 สถานะวันที่ 29 ตุลาคม 2026: กู้ปัญหา S3 metadata แล้ว ย้าย DB/media สำเร็จ และเปิด Web ASG สองเครื่องกับ Worker หนึ่งเครื่องจริง ตรวจ ALB targets/container health, `/ready`, หน้าเว็บ/JS/CSS, catalog และภาพปกผ่านแล้ว ยังต้องตรวจ login/playback/upload/scale/failover ตาม [ผลตรวจ](VERIFICATION.md) ให้เลือกใช้ชุดนี้เพียงทางเดียว ไม่สร้าง infrastructure จากคู่มือ Console/CloudFormation อีกชุดซ้ำ หากมีของเดิมที่สร้างไว้แล้วต้องตรวจ/import ให้เหมาะสมก่อน ห้ามรันสร้างทับโดยเดา resource IDs
 
@@ -235,7 +235,7 @@ Application logs อยู่ CloudWatch ตาม output `application_log_group
 
 ## 8. อัปเดตรุ่น พักระบบ และเก็บ state
 
-- อัปเดตรุ่น: commit/push ใหม่ → เปลี่ยน `git_commit` สำหรับทั้งระบบ หรือ `web_git_commit` สำหรับเครื่องเว็บ → plan/apply อัปเดต Launch Template → ทำ Instance Refresh ของ Web ASG โดยคง healthy capacity ใช้ Worker รุ่นใหม่ในช่วงคิวว่าง การแก้ LT อย่างเดียวไม่แทนเครื่องที่กำลังรัน
+- อัปเดตรุ่น: commit/push ใหม่ → เปลี่ยน `git_commit` พร้อมตั้ง `web_git_commit=""` (หรือให้ทั้งสองเป็น commit เดียวกัน) สำหรับทั้งระบบ หรือเปลี่ยนเฉพาะ `web_git_commit` สำหรับเครื่องเว็บ → plan/apply อัปเดต Launch Template → ทำ Instance Refresh ของ Web ASG โดยคง healthy capacity ใช้ Worker รุ่นใหม่ในช่วงคิวว่าง การแก้ LT อย่างเดียวไม่แทนเครื่องที่กำลังรัน
 - พักแอป: ตั้ง `start_apps=false` แล้ว plan/apply จะลดทั้ง ASGs เป็น 0 และถอด CPU policy ตรวจว่าทุกเครื่องแอปหยุดแล้ว เครื่อง migration ต้องจัดการแยกตามข้อ 7
 - ALB/NAT/EIP/RDS/storage/snapshots ยังมีค่าใช้จ่ายแม้ ASG=0 ไม่กด Stop EC2 ใน ASG อย่างเดียวเพราะอาจถูกสร้างทดแทน
 - DB, secret และ log group มี `prevent_destroy` และ RDS มี deletion protection ตัว S3 buckets ใช้ data source จึงไม่ถูก Terraform ลบ ส่วน configurations ของ bucket ยังอยู่ใน Terraform ไม่ใช้ `terraform destroy` เป็นขั้นตอนทดลอง หากจะรื้อหลังอาจารย์ตรวจต้องสำรอง/ตรวจ restore และตกลงรายการก่อน

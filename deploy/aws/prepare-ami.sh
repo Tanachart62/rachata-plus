@@ -10,7 +10,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 curl --fail --location --silent --show-error "https://github.com/docker/compose/releases/download/$version/docker-compose-linux-x86_64" -o "$work/docker-compose-linux-x86_64"
 curl --fail --location --silent --show-error "https://github.com/docker/compose/releases/download/$version/checksums.txt" -o "$work/checksums.txt"
-(cd "$work"; grep ' docker-compose-linux-x86_64$' checksums.txt | sha256sum --check --strict -)
+(cd "$work"; grep -E ' [*]?docker-compose-linux-x86_64$' checksums.txt | sha256sum --check --strict -)
 sudo install -d /usr/local/lib/docker/cli-plugins
 sudo install -m 0755 "$work/docker-compose-linux-x86_64" /usr/local/lib/docker/cli-plugins/docker-compose
 sudo docker compose version

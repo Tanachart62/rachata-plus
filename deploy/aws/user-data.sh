@@ -42,7 +42,7 @@ curl --fail --location --silent --show-error --retry 3 \
   "https://github.com/docker/compose/releases/download/$version/docker-compose-linux-x86_64" -o docker-compose-linux-x86_64
 curl --fail --location --silent --show-error --retry 3 \
   "https://github.com/docker/compose/releases/download/$version/checksums.txt" -o checksums.txt
-grep ' docker-compose-linux-x86_64$' checksums.txt | sha256sum --check --strict -
+grep -E ' [*]?docker-compose-linux-x86_64$' checksums.txt | sha256sum --check --strict -
 install -d /usr/local/lib/docker/cli-plugins
 install -m 0755 docker-compose-linux-x86_64 /usr/local/lib/docker/cli-plugins/docker-compose
 docker compose version

@@ -1,84 +1,110 @@
 # Rachata Plus
 
-สร้างโครงสร้าง AWS ด้วย Terraform พร้อม User Data ดึงโค้ดจาก GitHub: [คู่มือ Terraform](deploy/aws/terraform/README.md)
+A video streaming web application developed for an academic project. It supports guest browsing, registered accounts, membership plans, and administration. FFmpeg converts uploaded videos into adaptive HLS streams.
 
-คู่มือขึ้น AWS จาก GitHub แบบทำตาม AWS Console ทีละขั้น พร้อม User Data สำหรับ Launch Template: [AWS-GITHUB-WORKSHOP.md](AWS-GITHUB-WORKSHOP.md)
+## Technology stack
 
-ทางเลือกที่ใช้ S3 release/ECR: [AWS-WORKSHOP.md](AWS-WORKSHOP.md)
+| Component | Technology |
+| --- | --- |
+| Frontend | React, TypeScript, Vite, hls.js |
+| Backend | Go, Gin, pgx |
+| Database | PostgreSQL |
+| Video processing | FFmpeg and ffprobe |
+| Runtime | Docker Compose and Nginx |
+| AWS | EC2 Auto Scaling, ALB, RDS, S3, Secrets Manager, CloudWatch |
 
-เว็บวิดีโอสำหรับงานส่งอาจารย์ ใช้ React + TypeScript + Vite, Go + Gin + pgx, PostgreSQL และ FFmpeg/ffprobe แปลง HLS หลายความละเอียด
+## Features
 
-ชุด source นี้เก็บโค้ดแอป ไฟล์ build และไฟล์รันระบบ ส่วน tests และเครื่องมือ lint ถูกนำออกตามขอบเขตส่งงาน ไม่รวมการเก็บเงินจริง
+- Registration, login, logout, Argon2id password hashing, and cookie-based sessions.
+- Account settings, password changes, profile pictures, and session management.
+- Video catalog, search, details, watch history, continue watching, completed videos, and watchlist.
+- HLS quality selection and recommendations after playback.
+- Membership quality limits and concurrent playback leases shared through PostgreSQL.
+- Video upload, metadata/cover editing, publishing, hiding, deletion, and retranscoding.
+- Owner and administrator permissions, membership management, account suspension, password resets, and session revocation.
+- A database-backed administration dashboard for accounts, memberships, video status, processing queues, and recent activity.
 
-## โครงสร้างที่ใช้ build และรัน
+| Plan | Price | Maximum quality | Concurrent screens |
+| --- | --- | --- | --- |
+| Basic | THB 219 | 1080p | 2 |
+| Standard | THB 419 | 1440p | 2 |
+| Premium | THB 789 | 2160p | 4 |
 
-- `apps/web/src/` — หน้าเว็บ เครื่องเล่น และการเชื่อม API
-- `apps/web/package.json`, `package-lock.json` และ `tsconfig*.json` — dependency และการ build frontend
-- `apps/web/Dockerfile`, `apps/web/nginx/nginx.conf` — build และส่งเว็บ/HLS
-- `apps/api/` — API, worker, Go modules และ Dockerfile
-- `db/migrations/` — migrations 001–014 ที่ Compose อ้างอิง
-- `compose.yaml`, `compose.runtime.yaml` — PostgreSQL, API, worker และ web สำหรับ local
-- `scripts/backup-local-db.mjs`, `scripts/backup-local-media.mjs` — backup/ตรวจ restore ของชุด local
+Available qualities depend on the source video; the worker does not upscale. Payment confirmation is a local demonstration only. No real payments are collected. Administrators assign demonstration memberships on AWS.
 
-React, hls.js, TypeScript และ Vite ยังจำเป็นต่อแอปหรือขั้นตอน build แม้ production จะส่งเฉพาะไฟล์ static ผ่าน Nginx ส่วน FFmpeg อยู่ใน worker image
+## Repository layout
 
-## รันชุด local ด้วย Docker
+```text
+apps/web/                 React application, Dockerfile, and Nginx configuration
+apps/api/                 Go API, background worker, and Dockerfile
+db/migrations/            PostgreSQL schema migrations
+deploy/aws/               User Data, bootstrap, database, and runtime helpers
+scripts/                  Local database and media backup utilities
+compose.yaml              Local PostgreSQL configuration
+compose.runtime.yaml      Local API, worker, and web services
+compose.aws.yaml          Standalone EC2 runtime using RDS and S3
+AWS-CONSOLE.md            AWS Console deployment instructions
+```
 
-สร้าง `.env.local` จาก `.env.local.example` แล้วเปลี่ยนรหัสผ่านฐานข้อมูลก่อนเริ่ม อย่านำตัวอย่างรหัสผ่านไปใช้บน AWS
+## Run locally
 
-```sh
+Install Docker Desktop with Docker Compose. From the repository root, copy the environment template and choose a local database password:
+
+```powershell
+Copy-Item .env.local.example .env.local
+notepad .env.local
 docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml up -d --build
 ```
 
-ค่าเริ่มต้นเปิดที่ `http://127.0.0.1:8088/` ตรวจสถานะด้วย `docker compose` โดยใช้ env/project/ไฟล์ Compose ชุดเดียวกันตามคำสั่งข้างต้น
+Open [http://127.0.0.1:8088/](http://127.0.0.1:8088/), unless `WEB_PORT` was changed. Check the actual runtime with:
 
-Docker build ติดตั้ง dependency ให้เอง ไม่ต้องแนบ `node_modules` หรือ `dist` ไปกับ source หากจะ build frontend บน host ให้เข้า `apps/web` แล้วรัน `npm ci` และ `npm run build`
+```powershell
+docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml ps
+docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml logs --tail 100 api worker web
+```
 
-## สถานะและแนวทาง deploy AWS
+Docker builds install their own dependencies. For frontend development on the host:
 
-รอบวันที่ 29 ตุลาคม 2026 เปิด HTTP demo บน AWS Learner Lab แล้ว โดยใช้ [Terraform](deploy/aws/terraform/README.md): ALB + EC2 Auto Scaling สอง AZ, Worker แยกหนึ่งเครื่อง, RDS PostgreSQL Multi-AZ และ S3 private ไม่มี CloudFront ตรวจสอง web targets และ Worker container healthy, หน้าเว็บ/รายการวิดีโอ/ภาพปกและ `/ready` ผ่านแล้ว รายละเอียดและสิ่งที่ยังไม่ได้ทดสอบอยู่ใน [ผลตรวจ](deploy/aws/terraform/VERIFICATION.md) ลิงก์ Lab มีอายุและขึ้นอยู่กับสถานะบริการ/งบ
+```powershell
+cd apps/web
+npm ci
+npm run dev
+```
 
-- `compose.aws.yaml` เป็น standalone แยกจาก Compose local ไม่รัน PostgreSQL บน EC2 และไม่ให้เครื่องเว็บรอ Worker ในเครื่องเดียวกัน
-- `deploy/aws/stack.json` เป็นเส้นทาง CloudFormation ทางเลือก ไม่ได้ใช้ deploy รอบนี้ ไม่สร้างซ้ำกับ Terraform
-- production ปกติต้อง `MEDIA_BACKEND=s3`, `MEDIA_DELIVERY=direct`, `DB_SSLMODE=verify-full`, HTTPS และ secure cookies รอบเดโม่ opt in `AWS_HTTP_DEMO=true` สำหรับ HTTP ALB origin ตามที่ตกลง โดยคง S3 private, RDS TLS, HttpOnly/SameSite cookies และ Origin checks ไฟล์ HLS ยังผ่าน API ตรวจสิทธิ์ก่อนส่งจาก S3
-- Migration 015 ใช้สำหรับ AWS เพิ่ม object keys, direct multipart uploads และ shared rate limits แยกจาก local 001–014 สคริปต์ migration มี schema baseline/checksum ledger และไม่รันจาก Auto Scaling boot
-- รูปภาพถูก normalize ก่อนอัปโหลดและมีงบ decoder/scratch ตามเครื่อง การรับไฟล์ใหญ่ไม่ใช่การรับประกันว่าทรัพยากรไม่จำกัด
-- ต้องมีโดเมน/subdomain ที่ควบคุม DNS ได้และ ACM certificate ก่อนสร้างชุด HTTPS ตรวจงบจริงก่อนสร้าง ALB/NAT/RDS เพราะแม้ StartApps=false ก็ยังมีค่าใช้จ่ายของ infrastructure
-- ต้องตรวจ IAM, quota, capacity, scaling, RDS failover, backup/restore และ flows บน AWS จริงก่อนส่งอาจารย์ ผลทดสอบ local/emulator ไม่แทนผล AWS
+Use the origin/port configured in `vite.config.ts` and the API environment. Run `npm run build` from `apps/web` to create a frontend production build.
 
-Demo checkout เปิดเฉพาะ local เมื่อเป็น production ให้แอดมินจัดสิทธิ์สมาชิกแก่บัญชีเดโม่ ไม่มีระบบรับเงินจริง Basic สูงสุด 1080p/2 จอ, Standard 1440p/2 จอ, Premium 2160p/4 จอ ตามต้นฉบับและไม่ upscale Dashboard แอดมินดึงจำนวนบัญชี สมาชิก สถานะวิดีโอ คิวแปลง และกิจกรรมจาก PostgreSQL จริง อัปเดตทุก 30 วินาทีขณะเปิดหน้า ไม่แสดงกราฟยอดชม/CPU/RAM จำลอง และยังไม่ได้เชื่อม CloudWatch
+## Deploy using the AWS Console
 
-## ฐานข้อมูลและการสำรอง
+Follow [AWS-CONSOLE.md](AWS-CONSOLE.md). This setup uses a public ALB, private EC2 application subnets, private RDS subnets, and a private S3 media bucket. Launch Templates use [user-data-github.sh](deploy/aws/user-data-github.sh) to fetch a pinned GitHub commit and build Docker images on EC2.
 
-Compose เรียก migrations 001–014 อัตโนมัติเฉพาะ volume ว่าง ฐานข้อมูลเดิมต้องตรวจ schema และใช้เฉพาะ migration ที่ขาด ห้ามลบ volume เพื่ออัปเดต schema และห้ามรัน migration ซ้ำโดยไม่ตรวจ
+The web Auto Scaling Group runs Nginx and the API. A separate worker processes the PostgreSQL job queue. Sessions and playback leases live in RDS; source videos, HLS, covers, and uploaded avatars use S3. EC2 disk provides temporary processing space. Sticky sessions are unnecessary.
 
-สคริปต์ backup ปัจจุบันใช้ได้กับ Compose local เท่านั้น ก่อน backup ให้หยุด API/worker/web ด้วยพารามิเตอร์ Compose ชุดเดียวกับที่เปิดระบบ แล้วรันจาก root:
+HTTPS requires a DNS name you control and an ACM certificate. A classroom-only HTTP option supports the exact AWS ALB DNS origin with `HTTP_DEMO='true'` in User Data. Use test credentials for this unencrypted demonstration. The standard HTTPS configuration uses secure cookies.
 
-```sh
+Database migrations run separately before application Auto Scaling Groups start. They never run automatically during EC2 boot. The Console guide also covers migration of existing local data.
+
+## Database and backups
+
+Local initialization applies migrations 001-014 only to an empty database volume. AWS additionally uses migration 015 for S3 object references, multipart uploads, and shared rate limits. Inspect existing schemas and apply only missing migrations. Never delete a database volume to update its schema.
+
+For a consistent local backup, stop local writers and run both tools from the repository root:
+
+```powershell
+docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f compose.runtime.yaml stop web api worker
 node scripts/backup-local-db.mjs
 node scripts/backup-local-media.mjs
 ```
 
-หยุดตัวเขียนตลอดการสำรองทั้งคู่ เปิดกลับเมื่อสำเร็จ สคริปต์ DB ใช้ฐานข้อมูลชั่วคราวตรวจ restore; media ตรวจ checksum และเก็บโฟลเดอร์ตรวจ restore ไว้ ต้องปรับวิธีสำรองให้ตรงกับเครื่อง AWS และเก็บสำเนาแยกเครื่อง
+The database tool verifies restoration into a temporary database. The media tool verifies checksums and retains verification files. Keep writers stopped until both backups finish. Restart local writers only if this installation is still intended to accept changes. AWS backups need a separate RDS/S3 retention and restore procedure.
 
-## จัดชุด source ส่งงาน
+## Submission contents
 
-เก็บไฟล์ source, migrations, Docker/Compose, lockfiles และตัวอย่าง env ไม่แนบ `.env`, `.env.local`, `.git`, `backups`, `node_modules`, `dist`, `test-results` หรือ `.archify` ส่วน `storage` ส่งเฉพาะสื่อที่ตั้งใจแนบและมีสิทธิ์เผยแพร่ ข้อมูลบัญชีและ avatar อยู่ในฐานข้อมูล ไม่ได้รวมใน source
+Include tracked source files, SQL migrations, Dockerfiles, Compose files, lockfiles, environment examples, and documentation. Dependencies/build outputs are generated with `npm ci` and `npm run build` and are not included.
 
-ยืนยันการเปิด HTTP demo บน AWS และตรวจเส้นทางพื้นฐานแล้ว ยังไม่รับรอง production readiness, capacity, WCAG หรือทุก flow ผู้ใช้จากการผ่าน build/health checks
+When creating a ZIP manually, exclude `.git`, `.env`, `.env.local`, `secrets`, `storage`, `backups`, `node_modules`, `dist`, and generated caches. Database dumps may contain personal data and password hashes. Existing media and accounts are separate from the source submission; keep their original local copies outside the ZIP.
 
-## เจ้าของระบบและแอดมิน
+## Project scope
 
-Migration 014 (`db/migrations/add_admin_controls_and_video_edits.sql`) เพิ่มระดับสิทธิ์โดยคง role เดิมเป็น `user`/`admin` และเพิ่ม `admin_level` เป็น `owner`/`admin` สำหรับแอดมิน บัญชี admin เดิมจะเป็นเจ้าของระบบ ตรวจ schema ก่อนใช้ migration นี้เพียงครั้งเดียว สำรอง/ตรวจ restore และหยุด API/worker รุ่นเก่าก่อนลง ไม่ลบ volume
+This is a classroom project. Build and health checks do not prove every user flow, capacity, accessibility requirement, or failover scenario. Validate login, playback, uploads, package limits across instances, backup restoration, and scaling on the deployed system before demonstration.
 
-- เจ้าของระบบแต่งตั้งหรือถอดแอดมิน/เจ้าของระบบ จัดการสมาชิก วิดีโอ และลบบัญชีได้ เปลี่ยน role หรือลบบัญชีตัวเองผ่านคำสั่งแอดมินไม่ได้ จึงไม่สามารถทำให้เจ้าของระบบคนสุดท้ายหายไปผ่านหน้าเว็บ
-- แอดมินจัดการวิดีโอและบัญชีผู้ใช้ทั่วไปได้ แต่แก้สิทธิ์ ลบ หรือจัดการบัญชีแอดมินคนอื่นไม่ได้ รีเซ็ตรหัสผ่านให้ผู้ใช้ทั่วไปได้
-- เปลี่ยน role/รีเซ็ตรหัสผ่าน/ลบบัญชีต้องยืนยันรหัสผ่านผู้ดำเนินการ และตรวจ revision ก่อนบันทึก มี audit ใน `membership_events` ไม่เก็บรหัสผ่านใน audit ทุกคำสั่งนี้ยกเลิก session/สิทธิ์รับชมเดิมของเป้าหมาย
-- รีเซ็ตรหัสผ่านกำหนดค่าใหม่ 8–128 ตัวอักษร แจ้งเจ้าของบัญชีผ่านช่องทางส่วนตัว ให้ผู้ใช้เปลี่ยนอีกครั้งในโปรไฟล์ ระบบยังไม่มีการส่งอีเมลรีเซ็ตหรือบังคับเปลี่ยนครั้งแรก
-- ลบบัญชีต้องพิมพ์อีเมลยืนยัน ล้างชื่อ อีเมล รูป รหัสผ่าน ประวัติและดูภายหลัง พร้อมยกเลิกสมาชิก/เซสชัน บัญชีจะถูกซ่อนและเปิดคืนผ่านเว็บไม่ได้ เก็บแถวที่ไม่ระบุตัวตนเพื่อให้ audit เดิมอ้างอิงได้ ไม่ใช่การลบประวัติ audit หรือสำเนา backup ที่เคยสร้างไว้
-- คลังวิดีโอมีปุ่มแก้ชื่อ คำอธิบาย หมวดหมู่ และภาพปก โดยไม่เปลี่ยนไฟล์ต้นฉบับ/สถานะเผยแพร่หรือแปลง HLS ใหม่ ตรวจ metadata revision เพื่อกันการบันทึกทับจากหน้าเก่า
-- ภาพปกที่เลือกถูกย่ออัตโนมัติและ normalize เป็น JPEG ใน local เก็บภาพแก้ไขใน PostgreSQL และภาพอัปโหลดเดิมใน storage ส่วนโหมด AWS เก็บใน S3 โดยมีงบ decoder ป้องกัน RAM เต็ม การสำรอง DB และ media/object versions ยังต้องเก็บเป็นคู่
-
-Dashboard ใช้ GET /auth/admin/dashboard เฉพาะแอดมิน ไม่ cache และอ่านข้อมูลใน transaction เดียว สมาชิกนับบัญชีปกติที่มี subscription active และอยู่ในช่วงเวลาใช้งาน ไม่นับบัญชี/วิดีโอที่ลบแล้ว กิจกรรมบัญชีมาจาก membership_events ส่วนวิดีโอแสดงการอัปเดตล่าสุดของแต่ละรายการ ไม่ใช่ audit ประวัติการแก้ไขทุกครั้ง เมื่อ API ล้มเหลวจะแสดงข้อผิดพลาด ไม่มีข้อมูลจำลองทดแทน
-
-local เอาเพดานวิดีโอ 100 MB และข้อจำกัดภาพต้นฉบับเดิมออกแล้ว Nginx local ไม่กำหนด client_max_body_size แต่ API ยังคงงบพื้นที่ MEDIA_JOB_BYTES/พื้นที่รวม/พื้นที่ว่างของเครื่อง (local 1 GiB ต่อ job, 10 GiB รวม) และ Cloudflare อาจจำกัด request ก่อนถึงแอป โหมด AWS ส่งต้นฉบับตรง S3 แบบแบ่งส่วน ส่วน API/Nginx รับ metadata กับภาพที่ย่อแล้ว ไม่ได้เปิด request body ทุกชนิดแบบไร้ขอบเขต
+The submission does not include an automated test suite or lint tooling. CloudWatch infrastructure metrics are separate from the administration dashboard. The admin profile avatar currently uses a temporary preview; ordinary account avatars use the persisted upload path.

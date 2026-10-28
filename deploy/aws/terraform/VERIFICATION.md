@@ -28,3 +28,11 @@
 - Recovery live plan ผ่าน: **16 to add, 0 to change, 0 to destroy** มี state forget สองรายการที่เก็บ buckets จริงไว้ ตรวจ machine-readable plan ว่า RDS/no-op และไม่มี update/delete
 - terraform validate และ mock plans 4 กรณีผ่านอีกครั้ง; ensure-buckets.py syntax และ mock cases existing/missing-check/missing-create/forbidden/wrong-region ผ่าน โดย AccessDenied ไม่สร้าง bucket และไม่เรียก Object Lock API
 - ยังไม่ได้ apply recovery plan หรือยืนยันแอปบน AWS หลัง recovery
+
+## แก้ Compose checksum วันที่ 29 ตุลาคม 2026
+
+- พบจาก migration EC2 ว่า checksums.txt ของ Compose v2.39.4 ใช้ binary marker ` *docker-compose-linux-x86_64`; grep เดิมเลือกไม่เจอจึงหยุดก่อน build
+- ตรวจไฟล์ checksum ทางการและแก้ prepare-ami.sh กับ User Data รุ่น S3/ECR ให้รับทั้ง binary/text checksum markers โดยยังเลือกชื่อ binary ตรงตัว ไม่เลือก provenance/SBOM
+- ทดสอบ parser/checksum ด้วย fixtures ทั้งสองรูปแบบผ่าน และไฟล์ที่แก้ไขถูกปฏิเสธ; bash syntax ผ่าน
+- Pin Git source รุ่นแก้ไขใน Terraform/example/local configuration เพื่อไม่ให้ ASG เครื่องใหม่ดึง script รุ่นที่ล้มเหลว
+- ยังต้องรัน helper รุ่นใหม่บน EC2 ให้ build ผ่าน แล้ว update Launch Template/ASG ที่ยังมี desired=0 ก่อนเปิดแอป

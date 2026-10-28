@@ -4,7 +4,7 @@
 
 ถ้า apply ค้างจาก S3 Object Lock explicit deny ให้ใช้ [ขั้นตอนกู้ต่อ](S3-RECOVERY.md) รักษา bucket/state เดิม ไม่เริ่ม deployment ใหม่ รอบวันที่ 29 ตุลาคม 2026 พบข้อจำกัดนี้จริงใน Lab จึงใช้ bucket data sources และให้เตรียมตัว bucket ผ่าน AWS CLI แทน API metadata ที่ provider เรียกไม่ได้
 
-โค้ดแอปถูกดึงจาก GitHub commit `bf1df7c33ba5db4d84f10db398c005605d811944` และ build Docker บน EC2 ไม่ต้องใช้ ECR หรืออัปโหลด source release ไป S3 ไฟล์ User Data ถูกกรอกค่า resource IDs ให้อัตโนมัติ
+โค้ดแอปถูกดึงจาก GitHub commit `b56163605fee688b1575190315b7668c795d9951` และ build Docker บน EC2 ไม่ต้องใช้ ECR หรืออัปโหลด source release ไป S3 ไฟล์ User Data ถูกกรอกค่า resource IDs ให้อัตโนมัติ
 
 ผ่าน `terraform validate` และ mock plans 4 กรณีแล้ว มีการ apply บน AWS จริงจนเครือข่าย/RDS/ALB/migration host สำเร็จ แต่ค้าง S3 metadata ตามขั้นตอนกู้ต่อ ยังไม่ได้เปิดแอปหรือยืนยัน runtime ให้เลือกใช้ชุดนี้เพียงทางเดียว ไม่สร้าง infrastructure จากคู่มือ Console/CloudFormation อีกชุดซ้ำ หากมีของเดิมที่สร้างไว้แล้วต้องตรวจ/import ให้เหมาะสมก่อน ห้ามรันสร้างทับโดยเดา resource IDs
 
@@ -140,7 +140,7 @@ sudo cloud-init status --wait
 ตั้งค่าต่อไปนี้ด้วย Outputs จริง (ไม่มีรหัสผ่าน):
 
 ```bash
-GIT_COMMIT='bf1df7c33ba5db4d84f10db398c005605d811944'
+GIT_COMMIT='b56163605fee688b1575190315b7668c795d9951'
 DB_SECRET_ARN='YOUR_TERRAFORM_DB_SECRET_ARN'
 DB_HOST='YOUR_TERRAFORM_DB_ENDPOINT'
 MEDIA_BUCKET='YOUR_TERRAFORM_MEDIA_BUCKET'

@@ -9,4 +9,14 @@
 - ตรวจ User Data หลังแทนค่าทั้ง web/worker ด้วย `bash -n` ผ่าน ขนาดตัวอย่างประมาณ 2.9 KB ต่ำกว่าเพดาน raw 16 KB
 - ตรวจ 6 subnets, NAT สองตัว, DB private/Multi-AZ, media private, EC2 ไม่มี Public IP, IMDSv2 hop2, TG เดียว และไม่มี IAM role resource
 
-ยังไม่ได้ตรวจ apply/plan กับบัญชีจริง, Lab IAM/quota, RDS engine/class availability, certificate/DNS, cloud-init/build บน EC2, migration บน RDS, browser CORS, playback ข้ามเครื่อง, Auto Scaling หรือ failover ของ infrastructure ชุดนี้ ต้องทำตามคู่มือและตรวจ runtime ก่อนส่งงาน
+ยังไม่ได้ตรวจ apply กับบัญชีจริง, สิทธิ์สร้างทรัพยากร/quotas ทั้งหมดของ Lab, cloud-init/build บน EC2, migration บน RDS, browser CORS, playback ข้ามเครื่อง, Auto Scaling หรือ failover ของ infrastructure ชุดนี้ ต้องทำตามคู่มือและตรวจ runtime ก่อนส่งงาน
+
+## เพิ่มโหมด HTTP วันที่ 29 ตุลาคม 2026
+
+- HTTP เป็น opt-in `http_demo=true`; Terraform ใช้ ALB DNS จริงเป็น origin และ CORS ไม่สร้าง listener 443 และไม่ต้องมี hostname/ACM ส่วนโหมด HTTPS เดิมยังรองรับ
+- `terraform validate` ผ่าน และ mock plans ผ่าน 4 กรณี รวม HTTP แบบไม่มีโดเมน/certificate
+- External Go tests ตรวจ HTTP runtime/cookie attributes/Origin guard, configuration ที่ต้องถูกปฏิเสธ 8 กรณี, HTTPS production และ localhost HTTP ผ่าน พร้อม `go vet ./...` ผ่าน ไม่เพิ่ม test files ลงชุด source ส่งงาน
+- Bootstrap mock checks ตรวจ HTTP/HTTPS env และ prepare-only ผ่าน; User Data ผ่าน `bash -n`
+- ตรวจ RDS orderable options จริงใน us-east-1: db.t3.small, gp2, Multi-AZ รองรับ PostgreSQL 17.5–17.11 ณ เวลาตรวจ เลือก 17.11 ใน local tfvars และพบ LabInstanceProfile เดิม
+- `terraform plan` กับ credentials ของ Learner Lab ผ่าน: **68 to add, 0 to change, 0 to destroy**; ตรวจแผนว่า HTTP listener forward, ไม่มี HTTPS listener, เว็บ/Worker desired=0 และ DB/private EC2 ตามที่ตั้งใจ
+- Saved plan และ local tfvars ไม่เข้า Git; ยังไม่ได้รัน `apply` หรือสร้างบริการจากชุดนี้ ผล plan ไม่รับประกันสิทธิ์ Create APIs หรือ runtime หลังสร้าง

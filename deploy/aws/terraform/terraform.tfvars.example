@@ -1,10 +1,11 @@
 # Copy to terraform.tfvars (ignored). No AWS credentials belong here.
 region = "us-east-1"
 name = "rachata"
-hostname = "video.REPLACE_DOMAIN"
-certificate_arn = "REPLACE_ISSUED_ACM_ARN"
+http_demo = true
+hostname = ""
+certificate_arn = ""
 db_engine_version = "17.REPLACE_MINOR"
-git_commit = "f6ccadd10fda7bfc449ca1e26ab679ceac7af7fb"
+git_commit = "bf1df7c33ba5db4d84f10db398c005605d811944"
 start_apps = false
 data_migration_complete = false
 create_migration_host = true

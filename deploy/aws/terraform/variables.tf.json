@@ -27,20 +27,22 @@
       "description": "DNS hostname under your control; no scheme or path",
       "validation": [
         {
-          "condition": "${can(regex(\"^[a-zA-Z0-9][a-zA-Z0-9.-]+[.][a-zA-Z]{2,}$\", var.hostname)) && !strcontains(var.hostname, \"REPLACE\")}",
+          "condition": "${var.http_demo ? var.hostname == \"\" : (can(regex(\"^[a-zA-Z0-9][a-zA-Z0-9.-]+[.][a-zA-Z]{2,}$\", var.hostname)) && !strcontains(var.hostname, \"REPLACE\"))}",
           "error_message": "Invalid hostname; see README.md and terraform.tfvars.example."
         }
-      ]
+      ],
+      "default": ""
     },
     "certificate_arn": {
       "type": "string",
       "description": "ISSUED ACM certificate in the same region covering hostname",
       "validation": [
         {
-          "condition": "${can(regex(\"^arn:aws:acm:(us-east-1|us-west-2):[0-9]{12}:certificate/[a-f0-9-]+$\", var.certificate_arn)) && split(\":\", var.certificate_arn)[3] == var.region}",
+          "condition": "${var.http_demo ? var.certificate_arn == \"\" : (can(regex(\"^arn:aws:acm:(us-east-1|us-west-2):[0-9]{12}:certificate/[a-f0-9-]+$\", var.certificate_arn)) && try(split(\":\", var.certificate_arn)[3], \"\") == var.region)}",
           "error_message": "Invalid certificate_arn; see README.md and terraform.tfvars.example."
         }
-      ]
+      ],
+      "default": ""
     },
     "db_engine_version": {
       "type": "string",
@@ -55,7 +57,7 @@
     "git_commit": {
       "type": "string",
       "description": "Pinned public GitHub commit used by every node",
-      "default": "f6ccadd10fda7bfc449ca1e26ab679ceac7af7fb",
+      "default": "bf1df7c33ba5db4d84f10db398c005605d811944",
       "validation": [
         {
           "condition": "${can(regex(\"^[a-f0-9]{40}$\", var.git_commit))}",
@@ -126,6 +128,11 @@
       "type": "string",
       "description": "Optional pinned AL2023 x86_64 AMI, empty uses SSM latest",
       "default": ""
+    },
+    "http_demo": {
+      "type": "bool",
+      "description": "Explicit classroom HTTP demo on ALB DNS; no custom domain/certificate",
+      "default": false
     }
   }
 }

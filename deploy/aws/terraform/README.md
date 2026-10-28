@@ -1,20 +1,26 @@
 # ลง Rachata Plus บน AWS ด้วย Terraform
 
-ชุดนี้เป็น **Terraform native JSON (`.tf.json`)** ซึ่ง Terraform รันได้โดยตรง ไม่ได้เรียก CloudFormation สร้าง VPC สอง AZ, NAT สองตัว, S3 private สอง buckets, RDS PostgreSQL Multi-AZ, Secrets Manager, ALB HTTPS, Launch Templates, Web/Worker ASGs, CloudWatch logs/alarms และเครื่อง migration ชั่วคราว โดยใช้ `LabInstanceProfile` เดิม ไม่สร้าง IAM role ใหม่
+ชุดนี้เป็น **Terraform native JSON (`.tf.json`)** ซึ่ง Terraform รันได้โดยตรง ไม่ได้เรียก CloudFormation สร้าง VPC สอง AZ, NAT สองตัว, S3 private สอง buckets, RDS PostgreSQL Multi-AZ, Secrets Manager, ALB HTTP สำหรับเดโม่ (รองรับ HTTPS เป็นทางเลือก), Launch Templates, Web/Worker ASGs, CloudWatch logs/alarms และเครื่อง migration ชั่วคราว โดยใช้ `LabInstanceProfile` เดิม ไม่สร้าง IAM role ใหม่
 
-โค้ดแอปถูกดึงจาก GitHub commit `f6ccadd10fda7bfc449ca1e26ab679ceac7af7fb` และ build Docker บน EC2 ไม่ต้องใช้ ECR หรืออัปโหลด source release ไป S3 ไฟล์ User Data ถูกกรอกค่า resource IDs ให้อัตโนมัติ
+โค้ดแอปถูกดึงจาก GitHub commit `bf1df7c33ba5db4d84f10db398c005605d811944` และ build Docker บน EC2 ไม่ต้องใช้ ECR หรืออัปโหลด source release ไป S3 ไฟล์ User Data ถูกกรอกค่า resource IDs ให้อัตโนมัติ
 
-ผ่าน `terraform validate` และการทดสอบแผนด้วย mock providers 3 กรณีแล้ว แต่ **ยังไม่ได้ apply บน AWS จริง** ให้เลือกใช้ชุดนี้เพียงทางเดียว ไม่สร้าง infrastructure จากคู่มือ Console/CloudFormation อีกชุดซ้ำ หากมีของเดิมที่สร้างไว้แล้วต้องตรวจ/import ให้เหมาะสมก่อน ห้ามรันสร้างทับโดยเดา resource IDs
+ผ่าน `terraform validate` และการทดสอบแผนด้วย mock providers 4 กรณีแล้ว แต่ **ยังไม่ได้ apply บน AWS จริง** ให้เลือกใช้ชุดนี้เพียงทางเดียว ไม่สร้าง infrastructure จากคู่มือ Console/CloudFormation อีกชุดซ้ำ หากมีของเดิมที่สร้างไว้แล้วต้องตรวจ/import ให้เหมาะสมก่อน ห้ามรันสร้างทับโดยเดา resource IDs
 
-## 1. เตรียม 3 ค่าก่อนรัน
+## 1. ใช้ HTTP ผ่านชื่อ ALB ที่ AWS ให้
 
-| ค่า | เอาจากไหน |
-|---|---|
-| `hostname` | โดเมน/subdomain ที่คุณควบคุม DNS ได้ เช่น `video.your-domain.com` |
-| `certificate_arn` | ACM certificate สถานะ **Issued** ใน us-east-1 และครอบคลุม hostname นี้ |
-| `db_engine_version` | PostgreSQL **17.x** ที่รองรับ class/Multi-AZ ใน Learner Lab จริง |
+โหมดที่เลือกสำหรับส่งงานคือ `http_demo=true` เปิดด้วย `http://<ALB-DNS>` ไม่ต้องมีโดเมนส่วนตัวหรือ ACM certificate ชื่อ `rachata-alb-123456...` เป็นตัวอย่างเท่านั้น Terraform ใส่ชื่อจริงจาก resource ให้ทุก EC2 และ S3 CORS อัตโนมัติ URL จริงอยู่ใน output `website_url`
 
-คุณยังไม่มีโดเมนตามข้อมูลที่แจ้ง ต้องขอ subdomain จากอาจารย์/สถาบันหรือเตรียมชื่อที่แก้ DNS ได้ก่อน ACM → Request public certificate → ใส่ hostname → DNS validation → เพิ่ม CNAME ตาม ACM → รอ Issued ไม่สามารถขอ certificate ให้ชื่อ ALB ของ AWS ได้ ไม่ใส่ค่าตัวอย่างแล้วกด apply
+```hcl
+http_demo = true
+hostname = ""
+certificate_arn = ""
+```
+
+ค่าเดียวที่ต้องเลือกเพิ่มเติมคือ `db_engine_version` เป็น PostgreSQL 17.x ที่รองรับ db.t3.small / Multi-AZ / gp2 ใน Lab ตรวจจริงวันที่ 29 ตุลาคม 2026 พบ 17.5 ถึง 17.11 และเตรียมค่าท้องถิ่นเป็น 17.11 ก่อน plan ยังต้องอ่าน plan/สิทธิ์และ quota ของบัญชีจริงก่อน apply
+
+HTTP เดโมไม่เข้ารหัสข้อมูลระหว่างเบราว์เซอร์กับ ALB ใช้บัญชีและรหัสผ่านสำหรับสาธิต โหมดนี้ต้อง opt in ชัดเจนด้วย `AWS_HTTP_DEMO=true` และจำกัด origin เป็นชื่อ ALB ใน us-east-1/us-west-2 เท่านั้น ปิด Secure flag ของ session cookie แต่คง HttpOnly, SameSite=Strict และการตรวจ Origin ฝั่ง API RDS ยัง verify-full TLS, S3 ยัง private/HTTPS และ shared rate limits ยังทำงาน ไม่เปิด demo checkout
+
+ถ้าจะใช้ HTTPS ภายหลัง ให้ตั้ง `http_demo=false` พร้อม hostname ที่ควบคุม DNS ได้และ ACM certificate Issued ใน region เดียวกัน โหมดปกติยังบังคับ HTTPS/Secure cookie ตามเดิม
 
 งบที่แจ้งเหลือประมาณ $26.90 ชุด HA นี้คิดค่าบริการทั้ง NAT สองตัว, ALB, EC2, RDS Multi-AZ และ storage กำหนดช่วงเปิดตรวจและประเมินราคาก่อน apply แม้ตั้ง ASG เป็นศูนย์ ALB/NAT/RDS ยังคิดเงิน
 
@@ -53,7 +59,7 @@ if (-not (Test-Path deploy/aws/terraform/terraform.tfvars)) {
 notepad deploy/aws/terraform/terraform.tfvars
 ```
 
-กรอกค่าจริงสามตัวจากข้อ 1 คงค่าต่อไปนี้ในรอบแรก:
+ใช้ HTTP settings จากข้อ 1 เลือก DB minor ที่ตรวจได้จริง และคงค่าต่อไปนี้ในรอบแรก:
 
 ```hcl
 start_apps = false
@@ -66,7 +72,7 @@ create_migration_host = true
 ```powershell
 terraform -chdir=deploy/aws/terraform init
 terraform -chdir=deploy/aws/terraform validate
-terraform -chdir=deploy/aws/terraform plan -out=first.tfplan
+terraform -chdir=deploy/aws/terraform plan '-out=first.tfplan'
 ```
 
 ตรวจ plan ว่าเป็น resources ของโปรเจกต์นี้ ไม่ destroy ของเดิม ไม่มี IAM roles ใหม่ RDS ต้อง Multi-AZ/private, NAT สองตัว, app EC2 ไม่มี public IP, web/worker ASG ทั้งคู่ desired=0 และมี migration EC2 ชั่วคราวหนึ่งเครื่อง
@@ -119,16 +125,16 @@ sudo cloud-init status --wait
 ตั้งค่าต่อไปนี้ด้วย Outputs จริง (ไม่มีรหัสผ่าน):
 
 ```bash
-GIT_COMMIT='f6ccadd10fda7bfc449ca1e26ab679ceac7af7fb'
+GIT_COMMIT='bf1df7c33ba5db4d84f10db398c005605d811944'
 DB_SECRET_ARN='YOUR_TERRAFORM_DB_SECRET_ARN'
 DB_HOST='YOUR_TERRAFORM_DB_ENDPOINT'
 MEDIA_BUCKET='YOUR_TERRAFORM_MEDIA_BUCKET'
 ARTIFACT_BUCKET='YOUR_TERRAFORM_ARTIFACT_BUCKET'
-ORIGIN='https://YOUR_HOSTNAME'
+ORIGIN='YOUR_TERRAFORM_WEBSITE_URL'
 LOG_GROUP='/rachata/application'
 ```
 
-ถ้าเปลี่ยน `name` ให้ใช้ output `application_log_group` จริงแทน `/rachata/application` จากนั้น:
+ใส่ ORIGIN ตาม output `website_url` ให้ตรงทุกตัว ถ้าใช้ HTTPS ให้เอา `--allow-http-demo` ออกจากคำสั่งต่อไปนี้ ถ้าเปลี่ยน `name` ให้ใช้ output `application_log_group` จริงแทน `/rachata/application` จากนั้น:
 
 ```bash
 curl --fail --location --retry 3 "https://raw.githubusercontent.com/Tanachart62/rachata-plus/$GIT_COMMIT/deploy/aws/prepare-github.sh" -o /tmp/prepare-github.sh
@@ -137,7 +143,7 @@ cd /opt/rachata-plus
 sudo python3 deploy/aws/bootstrap.py --image-source local --role worker --region us-east-1 \
   --secret "$DB_SECRET_ARN" --db-host "$DB_HOST" --bucket "$MEDIA_BUCKET" --origin "$ORIGIN" \
   --api-image "rachata-plus-api:$GIT_COMMIT" --web-image "rachata-plus-web:$GIT_COMMIT" \
-  --worker-image "rachata-plus-worker:$GIT_COMMIT" --log-group "$LOG_GROUP" --prepare-only
+  --worker-image "rachata-plus-worker:$GIT_COMMIT" --log-group "$LOG_GROUP" --allow-http-demo --prepare-only
 sudo install -d -m 0700 /opt/rachata-import/storage
 sudo aws s3 cp "s3://$ARTIFACT_BUCKET/migration/YOUR_DB.dump" /opt/rachata-import/local.dump --region us-east-1
 sudo aws s3 cp "s3://$ARTIFACT_BUCKET/migration/YOUR_MEDIA.tar" /opt/rachata-import/media.tar --region us-east-1
@@ -180,7 +186,7 @@ create_migration_host = true
 ```
 
 ```powershell
-terraform -chdir=deploy/aws/terraform plan -out=start.tfplan
+terraform -chdir=deploy/aws/terraform plan '-out=start.tfplan'
 terraform -chdir=deploy/aws/terraform apply start.tfplan
 ```
 
@@ -188,7 +194,7 @@ Web ASG = min2/desired2/max3, Worker ASG = 1/1/1, CPU policy เว็บ 60% EC
 
 **Apply สำเร็จยังไม่ยืนยันว่าเว็บพร้อม** ชุดนี้ไม่ block รอ target health ให้ตรวจ EC2 → Target groups → web TG ต้อง Healthy สองเครื่อง และ ASG Activity ไม่วนสร้างเครื่องทดแทน Worker ไม่อยู่ใน TG
 
-DNS ของ hostname → CNAME ไป output `alb_dns` หรือ Alias หากผู้ให้บริการรองรับ แล้วเปิด `https://HOSTNAME/ready` ต้องได้ 200 พร้อม certificate ถูกต้อง Nginx ส่งทั้งเว็บกับ `/api/` ผ่าน TG HTTP80 เดียว ไม่ต้องเปิด sticky session
+เปิด URL จาก output `website_url` แล้วเติม `/ready` ต้องได้ 200 โหมด HTTP ไม่ต้องสร้าง DNS record หรือ certificate ส่วนกรณีเลือก HTTPS ให้ตั้ง DNS ของ hostname ไปที่ ALB ก่อน Nginx ส่งทั้งเว็บกับ `/api/` ผ่าน TG HTTP80 เดียว ไม่ต้องเปิด sticky session
 
 ## 7. ตรวจรับและดู log
 

@@ -33,6 +33,9 @@ args = parser.parse_args()
 root = Path('/opt/rachata-plus')
 os.chdir(root)
 os.umask(0o077)
+# This non-secret file is bind-mounted into the non-root Nginx container.
+# Git checkouts made under umask 077 otherwise leave it root-readable only.
+os.chmod(root / 'deploy/aws/nginx.conf', 0o644)
 http_demo = args.allow_http_demo
 if http_demo and not re.fullmatch(r'http://[a-z0-9][a-z0-9-]*\.' + re.escape(args.region) + r'\.elb\.amazonaws\.com', args.origin):
     raise SystemExit('HTTP demo requires the exact ALB HTTP origin in the selected region')

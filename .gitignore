@@ -69,6 +69,11 @@ test-results/
 .terraform/
 *.tfstate
 *.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+*.tfplan.json
+crash.log
 cdk.out/
 
 # OS and local editor settings

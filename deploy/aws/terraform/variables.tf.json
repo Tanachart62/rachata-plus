@@ -1,0 +1,131 @@
+{
+  "variable": {
+    "region": {
+      "type": "string",
+      "description": "Learner Lab region",
+      "default": "us-east-1",
+      "validation": [
+        {
+          "condition": "${contains([\"us-east-1\", \"us-west-2\"], var.region)}",
+          "error_message": "Invalid region; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "name": {
+      "type": "string",
+      "description": "Unique prefix; use one state/workspace per deployment",
+      "default": "rachata",
+      "validation": [
+        {
+          "condition": "${can(regex(\"^[a-z][a-z0-9-]{2,15}$\", var.name))}",
+          "error_message": "Invalid name; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "hostname": {
+      "type": "string",
+      "description": "DNS hostname under your control; no scheme or path",
+      "validation": [
+        {
+          "condition": "${can(regex(\"^[a-zA-Z0-9][a-zA-Z0-9.-]+[.][a-zA-Z]{2,}$\", var.hostname)) && !strcontains(var.hostname, \"REPLACE\")}",
+          "error_message": "Invalid hostname; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "certificate_arn": {
+      "type": "string",
+      "description": "ISSUED ACM certificate in the same region covering hostname",
+      "validation": [
+        {
+          "condition": "${can(regex(\"^arn:aws:acm:(us-east-1|us-west-2):[0-9]{12}:certificate/[a-f0-9-]+$\", var.certificate_arn)) && split(\":\", var.certificate_arn)[3] == var.region}",
+          "error_message": "Invalid certificate_arn; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "db_engine_version": {
+      "type": "string",
+      "description": "Available PostgreSQL 17 minor version supported by selected class",
+      "validation": [
+        {
+          "condition": "${can(regex(\"^17[.][0-9]+$\", var.db_engine_version))}",
+          "error_message": "Invalid db_engine_version; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "git_commit": {
+      "type": "string",
+      "description": "Pinned public GitHub commit used by every node",
+      "default": "f6ccadd10fda7bfc449ca1e26ab679ceac7af7fb",
+      "validation": [
+        {
+          "condition": "${can(regex(\"^[a-f0-9]{40}$\", var.git_commit))}",
+          "error_message": "Invalid git_commit; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "instance_profile": {
+      "type": "string",
+      "description": "Existing Learner Lab profile, no new IAM roles",
+      "default": "LabInstanceProfile"
+    },
+    "web_instance_type": {
+      "type": "string",
+      "description": "x86 web build/runtime type",
+      "default": "t3.medium",
+      "validation": [
+        {
+          "condition": "${contains([\"t3.medium\", \"t3.large\"], var.web_instance_type)}",
+          "error_message": "Invalid web_instance_type; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "worker_instance_type": {
+      "type": "string",
+      "description": "x86 FFmpeg/build type",
+      "default": "t3.large",
+      "validation": [
+        {
+          "condition": "${contains([\"t3.medium\", \"t3.large\"], var.worker_instance_type)}",
+          "error_message": "Invalid worker_instance_type; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "db_instance_class": {
+      "type": "string",
+      "description": "Check PG17 Multi-AZ availability in Lab before apply",
+      "default": "db.t3.small",
+      "validation": [
+        {
+          "condition": "${contains([\"db.t3.micro\", \"db.t3.small\", \"db.t3.medium\", \"db.t4g.micro\", \"db.t4g.small\", \"db.t4g.medium\"], var.db_instance_class)}",
+          "error_message": "Invalid db_instance_class; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "start_apps": {
+      "type": "bool",
+      "description": "False: create infrastructure with ASGs at zero; does NOT stop ALB/NAT/RDS billing",
+      "default": false,
+      "validation": [
+        {
+          "condition": "${!var.start_apps || var.data_migration_complete}",
+          "error_message": "Invalid start_apps; see README.md and terraform.tfvars.example."
+        }
+      ]
+    },
+    "data_migration_complete": {
+      "type": "bool",
+      "description": "Set true only after schema015, media import and counts verification",
+      "default": false
+    },
+    "create_migration_host": {
+      "type": "bool",
+      "description": "Temporary private EC2 for migration; remove only when data is verified",
+      "default": true
+    },
+    "ami_id": {
+      "type": "string",
+      "description": "Optional pinned AL2023 x86_64 AMI, empty uses SSM latest",
+      "default": ""
+    }
+  }
+}

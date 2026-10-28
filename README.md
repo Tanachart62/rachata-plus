@@ -1,5 +1,7 @@
 # Rachata Plus
 
+สร้างโครงสร้าง AWS ด้วย Terraform พร้อม User Data ดึงโค้ดจาก GitHub: [คู่มือ Terraform](deploy/aws/terraform/README.md)
+
 คู่มือขึ้น AWS จาก GitHub แบบทำตาม AWS Console ทีละขั้น พร้อม User Data สำหรับ Launch Template: [AWS-GITHUB-WORKSHOP.md](AWS-GITHUB-WORKSHOP.md)
 
 ทางเลือกที่ใช้ S3 release/ECR: [AWS-WORKSHOP.md](AWS-WORKSHOP.md)

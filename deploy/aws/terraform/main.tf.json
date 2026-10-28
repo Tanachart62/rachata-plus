@@ -1,0 +1,924 @@
+{
+  "terraform": {
+    "required_version": ">= 1.9, < 2.0",
+    "required_providers": {
+      "aws": {
+        "source": "hashicorp/aws",
+        "version": "= 6.70.0"
+      },
+      "random": {
+        "source": "hashicorp/random",
+        "version": "= 3.9.1"
+      }
+    }
+  },
+  "provider": {
+    "aws": {
+      "region": "${var.region}",
+      "default_tags": [
+        {
+          "tags": {
+            "Project": "RachataPlus",
+            "ManagedBy": "Terraform"
+          }
+        }
+      ]
+    }
+  },
+  "data": {
+    "aws_availability_zones": {
+      "available": {
+        "state": "available"
+      }
+    },
+    "aws_caller_identity": {
+      "current": {}
+    },
+    "aws_ssm_parameter": {
+      "ami": {
+        "count": "${var.ami_id == \"\" ? 1 : 0}",
+        "name": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+      }
+    }
+  },
+  "locals": {
+    "azs": "${slice(data.aws_availability_zones.available.names, 0, 2)}",
+    "ami": "${var.ami_id != \"\" ? var.ami_id : nonsensitive(data.aws_ssm_parameter.ami[0].value)}",
+    "origin": "https://${var.hostname}",
+    "user_data_common": "${replace(replace(replace(replace(replace(replace(replace(file(\"${path.module}/../user-data-github.sh\"), \"REPLACE_FULL_40_CHARACTER_COMMIT\", var.git_commit), \"REPLACE_SECRET_ARN\", aws_secretsmanager_secret.database.arn), \"REPLACE_RDS_ENDPOINT\", aws_db_instance.main.address), \"REPLACE_MEDIA_BUCKET\", aws_s3_bucket.media.id), \"https://REPLACE_HOSTNAME\", local.origin), \"us-east-1\", var.region), \"/rachata-plus/application\", aws_cloudwatch_log_group.application.name)}"
+  },
+  "resource": {
+    "random_password": {
+      "database": {
+        "length": 32,
+        "special": false
+      }
+    },
+    "random_id": {
+      "suffix": {
+        "byte_length": 4
+      }
+    },
+    "aws_vpc": {
+      "main": {
+        "cidr_block": "10.42.0.0/16",
+        "enable_dns_support": true,
+        "enable_dns_hostnames": true,
+        "tags": {
+          "Name": "${var.name}-vpc"
+        }
+      }
+    },
+    "aws_internet_gateway": {
+      "main": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "tags": {
+          "Name": "${var.name}-igw"
+        }
+      }
+    },
+    "aws_subnet": {
+      "public_a": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "cidr_block": "10.42.0.0/24",
+        "availability_zone": "${local.azs[0]}",
+        "map_public_ip_on_launch": false,
+        "tags": {
+          "Name": "${var.name}-public-a"
+        }
+      },
+      "app_a": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "cidr_block": "10.42.10.0/24",
+        "availability_zone": "${local.azs[0]}",
+        "map_public_ip_on_launch": false,
+        "tags": {
+          "Name": "${var.name}-app-a"
+        }
+      },
+      "db_a": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "cidr_block": "10.42.20.0/24",
+        "availability_zone": "${local.azs[0]}",
+        "map_public_ip_on_launch": false,
+        "tags": {
+          "Name": "${var.name}-db-a"
+        }
+      },
+      "public_b": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "cidr_block": "10.42.1.0/24",
+        "availability_zone": "${local.azs[1]}",
+        "map_public_ip_on_launch": false,
+        "tags": {
+          "Name": "${var.name}-public-b"
+        }
+      },
+      "app_b": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "cidr_block": "10.42.11.0/24",
+        "availability_zone": "${local.azs[1]}",
+        "map_public_ip_on_launch": false,
+        "tags": {
+          "Name": "${var.name}-app-b"
+        }
+      },
+      "db_b": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "cidr_block": "10.42.21.0/24",
+        "availability_zone": "${local.azs[1]}",
+        "map_public_ip_on_launch": false,
+        "tags": {
+          "Name": "${var.name}-db-b"
+        }
+      }
+    },
+    "aws_eip": {
+      "a": {
+        "domain": "vpc",
+        "tags": {
+          "Name": "${var.name}-nat-a"
+        }
+      },
+      "b": {
+        "domain": "vpc",
+        "tags": {
+          "Name": "${var.name}-nat-b"
+        }
+      }
+    },
+    "aws_nat_gateway": {
+      "a": {
+        "allocation_id": "${aws_eip.a.id}",
+        "subnet_id": "${aws_subnet.public_a.id}",
+        "depends_on": [
+          "aws_internet_gateway.main"
+        ],
+        "tags": {
+          "Name": "${var.name}-nat-a"
+        }
+      },
+      "b": {
+        "allocation_id": "${aws_eip.b.id}",
+        "subnet_id": "${aws_subnet.public_b.id}",
+        "depends_on": [
+          "aws_internet_gateway.main"
+        ],
+        "tags": {
+          "Name": "${var.name}-nat-b"
+        }
+      }
+    },
+    "aws_route_table": {
+      "app_a": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "tags": {
+          "Name": "${var.name}-rt-app-a"
+        }
+      },
+      "app_b": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "tags": {
+          "Name": "${var.name}-rt-app-b"
+        }
+      },
+      "public": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "tags": {
+          "Name": "${var.name}-rt-public"
+        }
+      },
+      "db": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "tags": {
+          "Name": "${var.name}-rt-db"
+        }
+      }
+    },
+    "aws_route": {
+      "app_a": {
+        "route_table_id": "${aws_route_table.app_a.id}",
+        "destination_cidr_block": "0.0.0.0/0",
+        "nat_gateway_id": "${aws_nat_gateway.a.id}"
+      },
+      "app_b": {
+        "route_table_id": "${aws_route_table.app_b.id}",
+        "destination_cidr_block": "0.0.0.0/0",
+        "nat_gateway_id": "${aws_nat_gateway.b.id}"
+      },
+      "public": {
+        "route_table_id": "${aws_route_table.public.id}",
+        "destination_cidr_block": "0.0.0.0/0",
+        "gateway_id": "${aws_internet_gateway.main.id}"
+      }
+    },
+    "aws_route_table_association": {
+      "app_a": {
+        "subnet_id": "${aws_subnet.app_a.id}",
+        "route_table_id": "${aws_route_table.app_a.id}"
+      },
+      "app_b": {
+        "subnet_id": "${aws_subnet.app_b.id}",
+        "route_table_id": "${aws_route_table.app_b.id}"
+      },
+      "public_a": {
+        "subnet_id": "${aws_subnet.public_a.id}",
+        "route_table_id": "${aws_route_table.public.id}"
+      },
+      "db_a": {
+        "subnet_id": "${aws_subnet.db_a.id}",
+        "route_table_id": "${aws_route_table.db.id}"
+      },
+      "public_b": {
+        "subnet_id": "${aws_subnet.public_b.id}",
+        "route_table_id": "${aws_route_table.public.id}"
+      },
+      "db_b": {
+        "subnet_id": "${aws_subnet.db_b.id}",
+        "route_table_id": "${aws_route_table.db.id}"
+      }
+    },
+    "aws_vpc_endpoint": {
+      "s3": {
+        "vpc_id": "${aws_vpc.main.id}",
+        "service_name": "com.amazonaws.${var.region}.s3",
+        "vpc_endpoint_type": "Gateway",
+        "route_table_ids": [
+          "${aws_route_table.app_a.id}",
+          "${aws_route_table.app_b.id}"
+        ]
+      }
+    },
+    "aws_security_group": {
+      "alb": {
+        "name_prefix": "${var.name}-alb-",
+        "vpc_id": "${aws_vpc.main.id}",
+        "description": "Rachata Plus alb",
+        "tags": {
+          "Name": "${var.name}-alb-sg"
+        }
+      },
+      "app": {
+        "name_prefix": "${var.name}-app-",
+        "vpc_id": "${aws_vpc.main.id}",
+        "description": "Rachata Plus app",
+        "tags": {
+          "Name": "${var.name}-app-sg"
+        }
+      },
+      "worker": {
+        "name_prefix": "${var.name}-worker-",
+        "vpc_id": "${aws_vpc.main.id}",
+        "description": "Rachata Plus worker",
+        "tags": {
+          "Name": "${var.name}-worker-sg"
+        }
+      },
+      "db": {
+        "name_prefix": "${var.name}-db-",
+        "vpc_id": "${aws_vpc.main.id}",
+        "description": "Rachata Plus db",
+        "tags": {
+          "Name": "${var.name}-db-sg"
+        }
+      }
+    },
+    "aws_vpc_security_group_ingress_rule": {
+      "alb_80": {
+        "security_group_id": "${aws_security_group.alb.id}",
+        "ip_protocol": "tcp",
+        "from_port": 80,
+        "to_port": 80,
+        "cidr_ipv4": "0.0.0.0/0"
+      },
+      "alb_443": {
+        "security_group_id": "${aws_security_group.alb.id}",
+        "ip_protocol": "tcp",
+        "from_port": 443,
+        "to_port": 443,
+        "cidr_ipv4": "0.0.0.0/0"
+      },
+      "web": {
+        "security_group_id": "${aws_security_group.app.id}",
+        "ip_protocol": "tcp",
+        "from_port": 80,
+        "to_port": 80,
+        "referenced_security_group_id": "${aws_security_group.alb.id}"
+      },
+      "db_app": {
+        "security_group_id": "${aws_security_group.db.id}",
+        "ip_protocol": "tcp",
+        "from_port": 5432,
+        "to_port": 5432,
+        "referenced_security_group_id": "${aws_security_group.app.id}"
+      },
+      "db_worker": {
+        "security_group_id": "${aws_security_group.db.id}",
+        "ip_protocol": "tcp",
+        "from_port": 5432,
+        "to_port": 5432,
+        "referenced_security_group_id": "${aws_security_group.worker.id}"
+      }
+    },
+    "aws_vpc_security_group_egress_rule": {
+      "alb": {
+        "security_group_id": "${aws_security_group.alb.id}",
+        "ip_protocol": "tcp",
+        "from_port": 80,
+        "to_port": 80,
+        "referenced_security_group_id": "${aws_security_group.app.id}"
+      },
+      "app": {
+        "security_group_id": "${aws_security_group.app.id}",
+        "ip_protocol": "-1",
+        "cidr_ipv4": "0.0.0.0/0"
+      },
+      "worker": {
+        "security_group_id": "${aws_security_group.worker.id}",
+        "ip_protocol": "-1",
+        "cidr_ipv4": "0.0.0.0/0"
+      }
+    },
+    "aws_s3_bucket": {
+      "media": {
+        "bucket": "${var.name}-media-${data.aws_caller_identity.current.account_id}-${random_id.suffix.hex}",
+        "force_destroy": false,
+        "lifecycle": {
+          "prevent_destroy": true
+        }
+      },
+      "artifacts": {
+        "bucket": "${var.name}-artifacts-${data.aws_caller_identity.current.account_id}-${random_id.suffix.hex}",
+        "force_destroy": false,
+        "lifecycle": {
+          "prevent_destroy": true
+        }
+      }
+    },
+    "aws_s3_bucket_public_access_block": {
+      "media": {
+        "bucket": "${aws_s3_bucket.media.id}",
+        "block_public_acls": true,
+        "block_public_policy": true,
+        "ignore_public_acls": true,
+        "restrict_public_buckets": true
+      },
+      "artifacts": {
+        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "block_public_acls": true,
+        "block_public_policy": true,
+        "ignore_public_acls": true,
+        "restrict_public_buckets": true
+      }
+    },
+    "aws_s3_bucket_ownership_controls": {
+      "media": {
+        "bucket": "${aws_s3_bucket.media.id}",
+        "rule": [
+          {
+            "object_ownership": "BucketOwnerEnforced"
+          }
+        ]
+      },
+      "artifacts": {
+        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "rule": [
+          {
+            "object_ownership": "BucketOwnerEnforced"
+          }
+        ]
+      }
+    },
+    "aws_s3_bucket_versioning": {
+      "media": {
+        "bucket": "${aws_s3_bucket.media.id}",
+        "versioning_configuration": [
+          {
+            "status": "Enabled"
+          }
+        ]
+      },
+      "artifacts": {
+        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "versioning_configuration": [
+          {
+            "status": "Enabled"
+          }
+        ]
+      }
+    },
+    "aws_s3_bucket_server_side_encryption_configuration": {
+      "media": {
+        "bucket": "${aws_s3_bucket.media.id}",
+        "rule": [
+          {
+            "apply_server_side_encryption_by_default": [
+              {
+                "sse_algorithm": "AES256"
+              }
+            ]
+          }
+        ]
+      },
+      "artifacts": {
+        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "rule": [
+          {
+            "apply_server_side_encryption_by_default": [
+              {
+                "sse_algorithm": "AES256"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "aws_s3_bucket_policy": {
+      "media": {
+        "bucket": "${aws_s3_bucket.media.id}",
+        "policy": "${jsonencode({\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"DenyHTTP\", \"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"${aws_s3_bucket.media.arn}\", \"${aws_s3_bucket.media.arn}/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]})}"
+      },
+      "artifacts": {
+        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "policy": "${jsonencode({\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"DenyHTTP\", \"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"${aws_s3_bucket.artifacts.arn}\", \"${aws_s3_bucket.artifacts.arn}/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]})}"
+      }
+    },
+    "aws_s3_bucket_cors_configuration": {
+      "media": {
+        "bucket": "${aws_s3_bucket.media.id}",
+        "cors_rule": [
+          {
+            "allowed_origins": [
+              "${local.origin}"
+            ],
+            "allowed_methods": [
+              "PUT"
+            ],
+            "allowed_headers": [
+              "*"
+            ],
+            "expose_headers": [
+              "ETag"
+            ],
+            "max_age_seconds": 600
+          }
+        ]
+      }
+    },
+    "aws_s3_bucket_lifecycle_configuration": {
+      "media": {
+        "bucket": "${aws_s3_bucket.media.id}",
+        "rule": [
+          {
+            "id": "abort-incomplete",
+            "status": "Enabled",
+            "filter": [
+              {
+                "prefix": "media/"
+              }
+            ],
+            "abort_incomplete_multipart_upload": [
+              {
+                "days_after_initiation": 2
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "aws_cloudwatch_log_group": {
+      "application": {
+        "name": "/${var.name}/application",
+        "retention_in_days": 7,
+        "lifecycle": {
+          "prevent_destroy": true
+        }
+      }
+    },
+    "aws_secretsmanager_secret": {
+      "database": {
+        "name_prefix": "${var.name}/database-",
+        "recovery_window_in_days": 7,
+        "lifecycle": {
+          "prevent_destroy": true
+        }
+      }
+    },
+    "aws_secretsmanager_secret_version": {
+      "database": {
+        "secret_id": "${aws_secretsmanager_secret.database.id}",
+        "secret_string": "${jsonencode({username=\"rachata\", password=random_password.database.result, dbname=\"rachata_plus\"})}"
+      }
+    },
+    "aws_db_subnet_group": {
+      "main": {
+        "name": "${var.name}-db-subnets",
+        "subnet_ids": [
+          "${aws_subnet.db_a.id}",
+          "${aws_subnet.db_b.id}"
+        ]
+      }
+    },
+    "aws_db_instance": {
+      "main": {
+        "identifier": "${var.name}-db",
+        "engine": "postgres",
+        "engine_version": "${var.db_engine_version}",
+        "instance_class": "${var.db_instance_class}",
+        "allocated_storage": 20,
+        "max_allocated_storage": 0,
+        "storage_type": "gp2",
+        "storage_encrypted": true,
+        "db_name": "rachata_plus",
+        "username": "rachata",
+        "password": "${random_password.database.result}",
+        "port": 5432,
+        "multi_az": true,
+        "publicly_accessible": false,
+        "db_subnet_group_name": "${aws_db_subnet_group.main.name}",
+        "vpc_security_group_ids": [
+          "${aws_security_group.db.id}"
+        ],
+        "backup_retention_period": 7,
+        "monitoring_interval": 0,
+        "performance_insights_enabled": false,
+        "enabled_cloudwatch_logs_exports": [
+          "postgresql"
+        ],
+        "deletion_protection": true,
+        "skip_final_snapshot": false,
+        "final_snapshot_identifier": "${var.name}-final-${random_id.suffix.hex}",
+        "allow_major_version_upgrade": false,
+        "auto_minor_version_upgrade": true,
+        "lifecycle": {
+          "prevent_destroy": true
+        },
+        "timeouts": {
+          "create": "90m",
+          "update": "90m"
+        }
+      }
+    },
+    "aws_lb": {
+      "main": {
+        "name": "${var.name}-alb",
+        "internal": false,
+        "load_balancer_type": "application",
+        "security_groups": [
+          "${aws_security_group.alb.id}"
+        ],
+        "subnets": [
+          "${aws_subnet.public_a.id}",
+          "${aws_subnet.public_b.id}"
+        ],
+        "idle_timeout": 120
+      }
+    },
+    "aws_lb_target_group": {
+      "web": {
+        "name": "${var.name}-web",
+        "port": 80,
+        "protocol": "HTTP",
+        "target_type": "instance",
+        "vpc_id": "${aws_vpc.main.id}",
+        "deregistration_delay": 120,
+        "health_check": [
+          {
+            "path": "/ready",
+            "protocol": "HTTP",
+            "matcher": "200",
+            "interval": 15,
+            "timeout": 5,
+            "healthy_threshold": 2,
+            "unhealthy_threshold": 8
+          }
+        ],
+        "stickiness": [
+          {
+            "type": "lb_cookie",
+            "enabled": false
+          }
+        ]
+      }
+    },
+    "aws_lb_listener": {
+      "https": {
+        "load_balancer_arn": "${aws_lb.main.arn}",
+        "port": 443,
+        "protocol": "HTTPS",
+        "certificate_arn": "${var.certificate_arn}",
+        "ssl_policy": "ELBSecurityPolicy-TLS13-1-2-2021-06",
+        "default_action": [
+          {
+            "type": "forward",
+            "target_group_arn": "${aws_lb_target_group.web.arn}"
+          }
+        ]
+      },
+      "http": {
+        "load_balancer_arn": "${aws_lb.main.arn}",
+        "port": 80,
+        "protocol": "HTTP",
+        "default_action": [
+          {
+            "type": "redirect",
+            "redirect": [
+              {
+                "port": "443",
+                "protocol": "HTTPS",
+                "status_code": "HTTP_301"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "aws_launch_template": {
+      "web": {
+        "name_prefix": "${var.name}-web-",
+        "image_id": "${local.ami}",
+        "instance_type": "${var.web_instance_type}",
+        "update_default_version": true,
+        "iam_instance_profile": [
+          {
+            "name": "${var.instance_profile}"
+          }
+        ],
+        "network_interfaces": [
+          {
+            "device_index": 0,
+            "associate_public_ip_address": false,
+            "security_groups": [
+              "${aws_security_group.app.id}"
+            ]
+          }
+        ],
+        "metadata_options": [
+          {
+            "http_endpoint": "enabled",
+            "http_tokens": "required",
+            "http_put_response_hop_limit": 2
+          }
+        ],
+        "block_device_mappings": [
+          {
+            "device_name": "/dev/xvda",
+            "ebs": [
+              {
+                "volume_type": "gp3",
+                "volume_size": 30,
+                "encrypted": true,
+                "delete_on_termination": true
+              }
+            ]
+          }
+        ],
+        "user_data": "${base64encode(local.user_data_common)}",
+        "tag_specifications": [
+          {
+            "resource_type": "instance",
+            "tags": {
+              "Name": "${var.name}-web"
+            }
+          }
+        ]
+      },
+      "worker": {
+        "name_prefix": "${var.name}-worker-",
+        "image_id": "${local.ami}",
+        "instance_type": "${var.worker_instance_type}",
+        "update_default_version": true,
+        "iam_instance_profile": [
+          {
+            "name": "${var.instance_profile}"
+          }
+        ],
+        "network_interfaces": [
+          {
+            "device_index": 0,
+            "associate_public_ip_address": false,
+            "security_groups": [
+              "${aws_security_group.worker.id}"
+            ]
+          }
+        ],
+        "metadata_options": [
+          {
+            "http_endpoint": "enabled",
+            "http_tokens": "required",
+            "http_put_response_hop_limit": 2
+          }
+        ],
+        "block_device_mappings": [
+          {
+            "device_name": "/dev/xvda",
+            "ebs": [
+              {
+                "volume_type": "gp3",
+                "volume_size": 80,
+                "encrypted": true,
+                "delete_on_termination": true
+              }
+            ]
+          }
+        ],
+        "user_data": "${base64encode(replace(local.user_data_common, \"ROLE='web'\", \"ROLE='worker'\"))}",
+        "tag_specifications": [
+          {
+            "resource_type": "instance",
+            "tags": {
+              "Name": "${var.name}-worker"
+            }
+          }
+        ]
+      }
+    },
+    "aws_autoscaling_group": {
+      "web": {
+        "name": "${var.name}-web-asg",
+        "min_size": "${var.start_apps ? 2 : 0}",
+        "desired_capacity": "${var.start_apps ? 2 : 0}",
+        "max_size": "${var.start_apps ? 3 : 0}",
+        "vpc_zone_identifier": [
+          "${aws_subnet.app_a.id}",
+          "${aws_subnet.app_b.id}"
+        ],
+        "health_check_type": "ELB",
+        "health_check_grace_period": 3600,
+        "default_instance_warmup": 300,
+        "wait_for_capacity_timeout": "0",
+        "launch_template": [
+          {
+            "id": "${aws_launch_template.web.id}",
+            "version": "${tostring(aws_launch_template.web.latest_version)}"
+          }
+        ],
+        "depends_on": [
+          "aws_route.app_a",
+          "aws_route.app_b",
+          "aws_route.public",
+          "aws_route_table_association.app_a",
+          "aws_route_table_association.app_b",
+          "aws_route_table_association.public_a",
+          "aws_route_table_association.public_b",
+          "aws_vpc_endpoint.s3",
+          "aws_vpc_security_group_egress_rule.app",
+          "aws_vpc_security_group_egress_rule.worker",
+          "aws_vpc_security_group_ingress_rule.db_app",
+          "aws_vpc_security_group_ingress_rule.db_worker",
+          "aws_secretsmanager_secret_version.database",
+          "aws_lb_listener.https",
+          "aws_s3_bucket_policy.media"
+        ],
+        "tag": [
+          {
+            "key": "Name",
+            "value": "${var.name}-web",
+            "propagate_at_launch": true
+          }
+        ],
+        "target_group_arns": [
+          "${aws_lb_target_group.web.arn}"
+        ]
+      },
+      "worker": {
+        "name": "${var.name}-worker-asg",
+        "min_size": "${var.start_apps ? 1 : 0}",
+        "desired_capacity": "${var.start_apps ? 1 : 0}",
+        "max_size": "${var.start_apps ? 1 : 0}",
+        "vpc_zone_identifier": [
+          "${aws_subnet.app_a.id}",
+          "${aws_subnet.app_b.id}"
+        ],
+        "health_check_type": "EC2",
+        "health_check_grace_period": 3600,
+        "default_instance_warmup": 300,
+        "wait_for_capacity_timeout": "0",
+        "launch_template": [
+          {
+            "id": "${aws_launch_template.worker.id}",
+            "version": "${tostring(aws_launch_template.worker.latest_version)}"
+          }
+        ],
+        "depends_on": [
+          "aws_route.app_a",
+          "aws_route.app_b",
+          "aws_route.public",
+          "aws_route_table_association.app_a",
+          "aws_route_table_association.app_b",
+          "aws_route_table_association.public_a",
+          "aws_route_table_association.public_b",
+          "aws_vpc_endpoint.s3",
+          "aws_vpc_security_group_egress_rule.app",
+          "aws_vpc_security_group_egress_rule.worker",
+          "aws_vpc_security_group_ingress_rule.db_app",
+          "aws_vpc_security_group_ingress_rule.db_worker",
+          "aws_secretsmanager_secret_version.database",
+          "aws_lb_listener.https",
+          "aws_s3_bucket_policy.media"
+        ],
+        "tag": [
+          {
+            "key": "Name",
+            "value": "${var.name}-worker",
+            "propagate_at_launch": true
+          }
+        ]
+      }
+    },
+    "aws_autoscaling_policy": {
+      "web_cpu": {
+        "count": "${var.start_apps ? 1 : 0}",
+        "name": "${var.name}-web-cpu",
+        "autoscaling_group_name": "${aws_autoscaling_group.web.name}",
+        "policy_type": "TargetTrackingScaling",
+        "target_tracking_configuration": [
+          {
+            "target_value": 60,
+            "predefined_metric_specification": [
+              {
+                "predefined_metric_type": "ASGAverageCPUUtilization"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "aws_instance": {
+      "migration": {
+        "count": "${var.create_migration_host ? 1 : 0}",
+        "ami": "${local.ami}",
+        "instance_type": "${var.worker_instance_type}",
+        "subnet_id": "${aws_subnet.app_a.id}",
+        "associate_public_ip_address": false,
+        "vpc_security_group_ids": [
+          "${aws_security_group.worker.id}"
+        ],
+        "iam_instance_profile": "${var.instance_profile}",
+        "metadata_options": [
+          {
+            "http_tokens": "required",
+            "http_endpoint": "enabled",
+            "http_put_response_hop_limit": 2
+          }
+        ],
+        "root_block_device": [
+          {
+            "volume_type": "gp3",
+            "volume_size": 80,
+            "encrypted": true,
+            "delete_on_termination": true
+          }
+        ],
+        "user_data": "#!/bin/bash\nset -euo pipefail\ndnf install -y docker git python3 unzip\nsystemctl enable --now docker\n",
+        "tags": {
+          "Name": "${var.name}-migration"
+        },
+        "depends_on": [
+          "aws_route.app_a",
+          "aws_route.app_b",
+          "aws_route.public",
+          "aws_route_table_association.app_a",
+          "aws_route_table_association.app_b",
+          "aws_route_table_association.public_a",
+          "aws_route_table_association.public_b",
+          "aws_vpc_endpoint.s3",
+          "aws_vpc_security_group_egress_rule.app",
+          "aws_vpc_security_group_egress_rule.worker",
+          "aws_vpc_security_group_ingress_rule.db_app",
+          "aws_vpc_security_group_ingress_rule.db_worker"
+        ]
+      }
+    },
+    "aws_cloudwatch_metric_alarm": {
+      "unhealthy_web": {
+        "alarm_name": "${var.name}-unhealthy-web",
+        "namespace": "AWS/ApplicationELB",
+        "metric_name": "UnHealthyHostCount",
+        "statistic": "Maximum",
+        "period": 60,
+        "evaluation_periods": 2,
+        "threshold": 0,
+        "comparison_operator": "GreaterThanThreshold",
+        "treat_missing_data": "notBreaching",
+        "dimensions": {
+          "LoadBalancer": "${aws_lb.main.arn_suffix}",
+          "TargetGroup": "${aws_lb_target_group.web.arn_suffix}"
+        }
+      },
+      "db_storage": {
+        "alarm_name": "${var.name}-db-low-storage",
+        "namespace": "AWS/RDS",
+        "metric_name": "FreeStorageSpace",
+        "statistic": "Minimum",
+        "period": 60,
+        "evaluation_periods": 2,
+        "threshold": 2147483648,
+        "comparison_operator": "LessThanThreshold",
+        "dimensions": {
+          "DBInstanceIdentifier": "${aws_db_instance.main.identifier}"
+        }
+      }
+    }
+  }
+}

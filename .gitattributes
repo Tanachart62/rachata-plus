@@ -3,3 +3,6 @@ deploy/aws/*.py text eol=lf
 deploy/aws/*.json text eol=lf
 deploy/aws/nginx.conf text eol=lf
 compose.aws.yaml text eol=lf
+deploy/aws/terraform/*.tf.json text eol=lf
+deploy/aws/terraform/*.hcl text eol=lf
+deploy/aws/terraform/*.example text eol=lf

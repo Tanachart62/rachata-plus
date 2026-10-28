@@ -133,6 +133,26 @@
       "type": "bool",
       "description": "Explicit classroom HTTP demo on ALB DNS; no custom domain/certificate",
       "default": false
+    },
+    "media_bucket_name": {
+      "type": "string",
+      "description": "Existing private bucket in this account/region; Learner Lab blocks Object Lock metadata reads on the general bucket resource",
+      "validation": [
+        {
+          "condition": "${can(regex(\"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$\", var.media_bucket_name)) && !strcontains(var.media_bucket_name, \"REPLACE\")}",
+          "error_message": "Prepare an owned private bucket with ensure-buckets.py, or use the existing bucket name from the recovery guide."
+        }
+      ]
+    },
+    "artifacts_bucket_name": {
+      "type": "string",
+      "description": "Existing private bucket in this account/region; Learner Lab blocks Object Lock metadata reads on the general bucket resource",
+      "validation": [
+        {
+          "condition": "${can(regex(\"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$\", var.artifacts_bucket_name)) && !strcontains(var.artifacts_bucket_name, \"REPLACE\")}",
+          "error_message": "Prepare an owned private bucket with ensure-buckets.py, or use the existing bucket name from the recovery guide."
+        }
+      ]
     }
   }
 }

@@ -1,10 +1,12 @@
 # ลง Rachata Plus บน AWS ด้วย Terraform
 
-ชุดนี้เป็น **Terraform native JSON (`.tf.json`)** ซึ่ง Terraform รันได้โดยตรง ไม่ได้เรียก CloudFormation สร้าง VPC สอง AZ, NAT สองตัว, S3 private สอง buckets, RDS PostgreSQL Multi-AZ, Secrets Manager, ALB HTTP สำหรับเดโม่ (รองรับ HTTPS เป็นทางเลือก), Launch Templates, Web/Worker ASGs, CloudWatch logs/alarms และเครื่อง migration ชั่วคราว โดยใช้ `LabInstanceProfile` เดิม ไม่สร้าง IAM role ใหม่
+ชุดนี้เป็น **Terraform native JSON (`.tf.json`)** ซึ่ง Terraform รันได้โดยตรง ไม่ได้เรียก CloudFormation สร้าง VPC สอง AZ, NAT สองตัว, RDS PostgreSQL Multi-AZ, Secrets Manager, ALB HTTP สำหรับเดโม่ (รองรับ HTTPS เป็นทางเลือก), Launch Templates, Web/Worker ASGs, CloudWatch logs/alarms และเครื่อง migration ชั่วคราว พร้อมจัดการ configurations ของ S3 private สอง buckets ที่เตรียมไว้ โดยใช้ `LabInstanceProfile` เดิม ไม่สร้าง IAM role ใหม่
+
+ถ้า apply ค้างจาก S3 Object Lock explicit deny ให้ใช้ [ขั้นตอนกู้ต่อ](S3-RECOVERY.md) รักษา bucket/state เดิม ไม่เริ่ม deployment ใหม่ รอบวันที่ 29 ตุลาคม 2026 พบข้อจำกัดนี้จริงใน Lab จึงใช้ bucket data sources และให้เตรียมตัว bucket ผ่าน AWS CLI แทน API metadata ที่ provider เรียกไม่ได้
 
 โค้ดแอปถูกดึงจาก GitHub commit `bf1df7c33ba5db4d84f10db398c005605d811944` และ build Docker บน EC2 ไม่ต้องใช้ ECR หรืออัปโหลด source release ไป S3 ไฟล์ User Data ถูกกรอกค่า resource IDs ให้อัตโนมัติ
 
-ผ่าน `terraform validate` และการทดสอบแผนด้วย mock providers 4 กรณีแล้ว แต่ **ยังไม่ได้ apply บน AWS จริง** ให้เลือกใช้ชุดนี้เพียงทางเดียว ไม่สร้าง infrastructure จากคู่มือ Console/CloudFormation อีกชุดซ้ำ หากมีของเดิมที่สร้างไว้แล้วต้องตรวจ/import ให้เหมาะสมก่อน ห้ามรันสร้างทับโดยเดา resource IDs
+ผ่าน `terraform validate` และ mock plans 4 กรณีแล้ว มีการ apply บน AWS จริงจนเครือข่าย/RDS/ALB/migration host สำเร็จ แต่ค้าง S3 metadata ตามขั้นตอนกู้ต่อ ยังไม่ได้เปิดแอปหรือยืนยัน runtime ให้เลือกใช้ชุดนี้เพียงทางเดียว ไม่สร้าง infrastructure จากคู่มือ Console/CloudFormation อีกชุดซ้ำ หากมีของเดิมที่สร้างไว้แล้วต้องตรวจ/import ให้เหมาะสมก่อน ห้ามรันสร้างทับโดยเดา resource IDs
 
 ## 1. ใช้ HTTP ผ่านชื่อ ALB ที่ AWS ให้
 
@@ -52,6 +54,17 @@ aws rds describe-orderable-db-instance-options --engine postgres --engine-versio
 
 ## 3. กรอก config แล้ว init/plan
 
+**ถ้ามี buckets จาก apply ครั้งก่อนแล้ว ให้ใช้ชื่อเดิมและข้ามคำสั่งสร้าง buckets** สำหรับ deployment ใหม่เท่านั้น เลือกชื่อที่ไม่ซ้ำและเตรียม private buckets:
+
+```powershell
+$taskAccount = aws sts get-caller-identity --query Account --output text
+$taskMedia = "rachata-media-$taskAccount-us-east-1"
+$taskArtifacts = "rachata-artifacts-$taskAccount-us-east-1"
+python deploy/aws/terraform/ensure-buckets.py --media-bucket $taskMedia --artifacts-bucket $taskArtifacts --region us-east-1 --profile learner --create
+```
+
+สคริปต์ตรวจเจ้าของ/region/Block Public Access ก่อนใช้ ไม่เรียก Object Lock ไม่ลบ buckets และไม่สร้างหากได้ AccessDenied; ไม่ใส่ `--create` จะตรวจอย่างเดียว Terraform จะจัดการ encryption, versioning, CORS และ policies ต่อเมื่อ apply
+
 ```powershell
 if (-not (Test-Path deploy/aws/terraform/terraform.tfvars)) {
   Copy-Item deploy/aws/terraform/terraform.tfvars.example deploy/aws/terraform/terraform.tfvars
@@ -60,6 +73,8 @@ notepad deploy/aws/terraform/terraform.tfvars
 ```
 
 ใช้ HTTP settings จากข้อ 1 เลือก DB minor ที่ตรวจได้จริง และคงค่าต่อไปนี้ในรอบแรก:
+
+กรอก `media_bucket_name` และ `artifacts_bucket_name` ให้ตรง bucket ที่ตรวจแล้วด้วย หากไม่ได้สร้างใหม่ใช้ชื่อเดิมที่มีอยู่ ไม่เปลี่ยนชื่อเพื่อแก้ error
 
 ```hcl
 start_apps = false
@@ -221,7 +236,7 @@ Application logs อยู่ CloudWatch ตาม output `application_log_group
 - อัปเดตรุ่น: commit/push ใหม่ → เปลี่ยน `git_commit` → plan/apply อัปเดต Launch Template → ทำ Instance Refresh ของ Web ASG โดยคง healthy capacity ใช้ Worker รุ่นใหม่ในช่วงคิวว่าง การแก้ LT อย่างเดียวไม่แทนเครื่องที่กำลังรัน
 - พักแอป: ตั้ง `start_apps=false` แล้ว plan/apply จะลดทั้ง ASGs เป็น 0 และถอด CPU policy ตรวจว่าทุกเครื่องแอปหยุดแล้ว เครื่อง migration ต้องจัดการแยกตามข้อ 7
 - ALB/NAT/EIP/RDS/storage/snapshots ยังมีค่าใช้จ่ายแม้ ASG=0 ไม่กด Stop EC2 ใน ASG อย่างเดียวเพราะอาจถูกสร้างทดแทน
-- DB, S3 buckets, secret และ log group มี `prevent_destroy` และ RDS มี deletion protection ไม่ใช้ `terraform destroy` เป็นขั้นตอนทดลอง หากจะรื้อหลังอาจารย์ตรวจต้องสำรอง/ตรวจ restore และตกลงรายการก่อน
+- DB, secret และ log group มี `prevent_destroy` และ RDS มี deletion protection ตัว S3 buckets ใช้ data source จึงไม่ถูก Terraform ลบ ส่วน configurations ของ bucket ยังอยู่ใน Terraform ไม่ใช้ `terraform destroy` เป็นขั้นตอนทดลอง หากจะรื้อหลังอาจารย์ตรวจต้องสำรอง/ตรวจ restore และตกลงรายการก่อน
 - ไม่ลบ state เพื่อแก้ error ไม่อัปโหลด state/plan/tfvars ให้ GitHub และไม่แก้ resource IDs ใน state เอง ถ้าเปลี่ยนเครื่องทำงานต้องย้าย state แบบปลอดภัยด้วย ไม่ใช่ clone repo แล้ว apply จาก state ว่าง
 - ถ้า temporary credentials หมดอายุ ให้อัปเดต profile `learner` จาก Lab แล้ว plan ใหม่ ไม่ reset Lab
 

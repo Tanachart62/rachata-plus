@@ -39,13 +39,21 @@
         "count": "${var.ami_id == \"\" ? 1 : 0}",
         "name": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
       }
+    },
+    "aws_s3_bucket": {
+      "media": {
+        "bucket": "${var.media_bucket_name}"
+      },
+      "artifacts": {
+        "bucket": "${var.artifacts_bucket_name}"
+      }
     }
   },
   "locals": {
     "azs": "${slice(data.aws_availability_zones.available.names, 0, 2)}",
     "ami": "${var.ami_id != \"\" ? var.ami_id : nonsensitive(data.aws_ssm_parameter.ami[0].value)}",
     "origin": "${var.http_demo ? \"http://${aws_lb.main.dns_name}\" : \"https://${var.hostname}\"}",
-    "user_data_common": "${replace(replace(replace(replace(replace(replace(replace(replace(file(\"${path.module}/../user-data-github.sh\"), \"REPLACE_FULL_40_CHARACTER_COMMIT\", var.git_commit), \"REPLACE_SECRET_ARN\", aws_secretsmanager_secret.database.arn), \"REPLACE_RDS_ENDPOINT\", aws_db_instance.main.address), \"REPLACE_MEDIA_BUCKET\", aws_s3_bucket.media.id), \"https://REPLACE_HOSTNAME\", local.origin), \"us-east-1\", var.region), \"/rachata-plus/application\", aws_cloudwatch_log_group.application.name), \"HTTP_DEMO='false'\", var.http_demo ? \"HTTP_DEMO='true'\" : \"HTTP_DEMO='false'\")}"
+    "user_data_common": "${replace(replace(replace(replace(replace(replace(replace(replace(file(\"${path.module}/../user-data-github.sh\"), \"REPLACE_FULL_40_CHARACTER_COMMIT\", var.git_commit), \"REPLACE_SECRET_ARN\", aws_secretsmanager_secret.database.arn), \"REPLACE_RDS_ENDPOINT\", aws_db_instance.main.address), \"REPLACE_MEDIA_BUCKET\", data.aws_s3_bucket.media.id), \"https://REPLACE_HOSTNAME\", local.origin), \"us-east-1\", var.region), \"/rachata-plus/application\", aws_cloudwatch_log_group.application.name), \"HTTP_DEMO='false'\", var.http_demo ? \"HTTP_DEMO='true'\" : \"HTTP_DEMO='false'\")}"
   },
   "resource": {
     "random_password": {
@@ -340,32 +348,16 @@
         "cidr_ipv4": "0.0.0.0/0"
       }
     },
-    "aws_s3_bucket": {
-      "media": {
-        "bucket": "${var.name}-media-${data.aws_caller_identity.current.account_id}-${random_id.suffix.hex}",
-        "force_destroy": false,
-        "lifecycle": {
-          "prevent_destroy": true
-        }
-      },
-      "artifacts": {
-        "bucket": "${var.name}-artifacts-${data.aws_caller_identity.current.account_id}-${random_id.suffix.hex}",
-        "force_destroy": false,
-        "lifecycle": {
-          "prevent_destroy": true
-        }
-      }
-    },
     "aws_s3_bucket_public_access_block": {
       "media": {
-        "bucket": "${aws_s3_bucket.media.id}",
+        "bucket": "${data.aws_s3_bucket.media.id}",
         "block_public_acls": true,
         "block_public_policy": true,
         "ignore_public_acls": true,
         "restrict_public_buckets": true
       },
       "artifacts": {
-        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "bucket": "${data.aws_s3_bucket.artifacts.id}",
         "block_public_acls": true,
         "block_public_policy": true,
         "ignore_public_acls": true,
@@ -374,7 +366,7 @@
     },
     "aws_s3_bucket_ownership_controls": {
       "media": {
-        "bucket": "${aws_s3_bucket.media.id}",
+        "bucket": "${data.aws_s3_bucket.media.id}",
         "rule": [
           {
             "object_ownership": "BucketOwnerEnforced"
@@ -382,7 +374,7 @@
         ]
       },
       "artifacts": {
-        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "bucket": "${data.aws_s3_bucket.artifacts.id}",
         "rule": [
           {
             "object_ownership": "BucketOwnerEnforced"
@@ -392,7 +384,7 @@
     },
     "aws_s3_bucket_versioning": {
       "media": {
-        "bucket": "${aws_s3_bucket.media.id}",
+        "bucket": "${data.aws_s3_bucket.media.id}",
         "versioning_configuration": [
           {
             "status": "Enabled"
@@ -400,7 +392,7 @@
         ]
       },
       "artifacts": {
-        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "bucket": "${data.aws_s3_bucket.artifacts.id}",
         "versioning_configuration": [
           {
             "status": "Enabled"
@@ -410,7 +402,7 @@
     },
     "aws_s3_bucket_server_side_encryption_configuration": {
       "media": {
-        "bucket": "${aws_s3_bucket.media.id}",
+        "bucket": "${data.aws_s3_bucket.media.id}",
         "rule": [
           {
             "apply_server_side_encryption_by_default": [
@@ -422,7 +414,7 @@
         ]
       },
       "artifacts": {
-        "bucket": "${aws_s3_bucket.artifacts.id}",
+        "bucket": "${data.aws_s3_bucket.artifacts.id}",
         "rule": [
           {
             "apply_server_side_encryption_by_default": [
@@ -436,17 +428,17 @@
     },
     "aws_s3_bucket_policy": {
       "media": {
-        "bucket": "${aws_s3_bucket.media.id}",
-        "policy": "${jsonencode({\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"DenyHTTP\", \"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"${aws_s3_bucket.media.arn}\", \"${aws_s3_bucket.media.arn}/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]})}"
+        "bucket": "${data.aws_s3_bucket.media.id}",
+        "policy": "${jsonencode({\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"DenyHTTP\", \"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"${data.aws_s3_bucket.media.arn}\", \"${data.aws_s3_bucket.media.arn}/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]})}"
       },
       "artifacts": {
-        "bucket": "${aws_s3_bucket.artifacts.id}",
-        "policy": "${jsonencode({\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"DenyHTTP\", \"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"${aws_s3_bucket.artifacts.arn}\", \"${aws_s3_bucket.artifacts.arn}/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]})}"
+        "bucket": "${data.aws_s3_bucket.artifacts.id}",
+        "policy": "${jsonencode({\"Version\": \"2012-10-17\", \"Statement\": [{\"Sid\": \"DenyHTTP\", \"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"${data.aws_s3_bucket.artifacts.arn}\", \"${data.aws_s3_bucket.artifacts.arn}/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]})}"
       }
     },
     "aws_s3_bucket_cors_configuration": {
       "media": {
-        "bucket": "${aws_s3_bucket.media.id}",
+        "bucket": "${data.aws_s3_bucket.media.id}",
         "cors_rule": [
           {
             "allowed_origins": [
@@ -468,7 +460,7 @@
     },
     "aws_s3_bucket_lifecycle_configuration": {
       "media": {
-        "bucket": "${aws_s3_bucket.media.id}",
+        "bucket": "${data.aws_s3_bucket.media.id}",
         "rule": [
           {
             "id": "abort-incomplete",
@@ -928,5 +920,19 @@
         }
       }
     }
-  }
+  },
+  "removed": [
+    {
+      "from": "aws_s3_bucket.media",
+      "lifecycle": {
+        "destroy": false
+      }
+    },
+    {
+      "from": "aws_s3_bucket.artifacts",
+      "lifecycle": {
+        "destroy": false
+      }
+    }
+  ]
 }

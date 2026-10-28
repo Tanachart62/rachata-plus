@@ -20,3 +20,11 @@
 - ตรวจ RDS orderable options จริงใน us-east-1: db.t3.small, gp2, Multi-AZ รองรับ PostgreSQL 17.5–17.11 ณ เวลาตรวจ เลือก 17.11 ใน local tfvars และพบ LabInstanceProfile เดิม
 - `terraform plan` กับ credentials ของ Learner Lab ผ่าน: **68 to add, 0 to change, 0 to destroy**; ตรวจแผนว่า HTTP listener forward, ไม่มี HTTPS listener, เว็บ/Worker desired=0 และ DB/private EC2 ตามที่ตั้งใจ
 - Saved plan และ local tfvars ไม่เข้า Git; ยังไม่ได้รัน `apply` หรือสร้างบริการจากชุดนี้ ผล plan ไม่รับประกันสิทธิ์ Create APIs หรือ runtime หลังสร้าง
+
+## กู้ apply หลังพบ S3 SCP deny วันที่ 29 ตุลาคม 2026
+
+- apply ครั้งแรกสร้าง VPC/NAT/ALB/RDS Multi-AZ/migration host จริงแล้ว แต่ general aws_s3_bucket Read ล้มเหลวเมื่ออ่าน Object Lock ที่ SCP ของ Lab explicit deny ทำให้สอง bucket ถูก mark tainted ใน state โดย bucket จริงสร้างแล้วและ Block Public Access ครบทั้งสี่ค่าตรวจแล้ว
+- สำรอง state ลง backups ก่อนแก้ แทนการอ่าน bucket metadata ทั่วไปด้วย data.aws_s3_bucket และ removed destroy=false สำหรับ addresses เดิม ไม่แก้ IAM/SCP และไม่ลบ bucket/objects
+- Recovery live plan ผ่าน: **16 to add, 0 to change, 0 to destroy** มี state forget สองรายการที่เก็บ buckets จริงไว้ ตรวจ machine-readable plan ว่า RDS/no-op และไม่มี update/delete
+- terraform validate และ mock plans 4 กรณีผ่านอีกครั้ง; ensure-buckets.py syntax และ mock cases existing/missing-check/missing-create/forbidden/wrong-region ผ่าน โดย AccessDenied ไม่สร้าง bucket และไม่เรียก Object Lock API
+- ยังไม่ได้ apply recovery plan หรือยืนยันแอปบน AWS หลัง recovery

@@ -9,3 +9,5 @@ git_commit = "bf1df7c33ba5db4d84f10db398c005605d811944"
 start_apps = false
 data_migration_complete = false
 create_migration_host = true
+media_bucket_name = "REPLACE_PRIVATE_MEDIA_BUCKET"
+artifacts_bucket_name = "REPLACE_PRIVATE_ARTIFACT_BUCKET"

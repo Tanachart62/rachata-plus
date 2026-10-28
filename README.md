@@ -34,13 +34,13 @@ docker compose --env-file .env.local -p rachata-plus-local -f compose.yaml -f co
 
 Docker build ติดตั้ง dependency ให้เอง ไม่ต้องแนบ `node_modules` หรือ `dist` ไปกับ source หากจะ build frontend บน host ให้เข้า `apps/web` แล้วรัน `npm ci` และ `npm run build`
 
-## ข้อกำหนดก่อน deploy AWS
+## สถานะและแนวทาง deploy AWS
 
-อ่าน [AWS-DEPLOY.md](AWS-DEPLOY.md) สำหรับขั้นตอนละเอียดและข้อจำกัด Learner Lab แผน AWS ใช้ ALB + EC2 Auto Scaling สอง AZ, Worker แยกหนึ่งเครื่อง, RDS PostgreSQL Multi-AZ และ S3 private โดยไม่มี CloudFront
+รอบวันที่ 29 ตุลาคม 2026 เปิด HTTP demo บน AWS Learner Lab แล้ว โดยใช้ [Terraform](deploy/aws/terraform/README.md): ALB + EC2 Auto Scaling สอง AZ, Worker แยกหนึ่งเครื่อง, RDS PostgreSQL Multi-AZ และ S3 private ไม่มี CloudFront ตรวจสอง web targets และ Worker container healthy, หน้าเว็บ/รายการวิดีโอ/ภาพปกและ `/ready` ผ่านแล้ว รายละเอียดและสิ่งที่ยังไม่ได้ทดสอบอยู่ใน [ผลตรวจ](deploy/aws/terraform/VERIFICATION.md) ลิงก์ Lab มีอายุและขึ้นอยู่กับสถานะบริการ/งบ
 
 - `compose.aws.yaml` เป็น standalone แยกจาก Compose local ไม่รัน PostgreSQL บน EC2 และไม่ให้เครื่องเว็บรอ Worker ในเครื่องเดียวกัน
-- `deploy/aws/stack.json` เตรียม VPC/subnets, NAT สองตัว, S3 endpoint, ALB, RDS, Secrets Manager, CloudWatch และ Launch Templates/ASGs โดยใช้ LabInstanceProfile เดิม ยังไม่ได้สร้างทรัพยากรจริง
-- production ต้อง `MEDIA_BACKEND=s3`, `MEDIA_DELIVERY=direct`, `DB_SSLMODE=verify-full`, HTTPS และ secure cookies ไฟล์ HLS ยังผ่าน API ตรวจสิทธิ์ก่อนส่งจาก S3
+- `deploy/aws/stack.json` เป็นเส้นทาง CloudFormation ทางเลือก ไม่ได้ใช้ deploy รอบนี้ ไม่สร้างซ้ำกับ Terraform
+- production ปกติต้อง `MEDIA_BACKEND=s3`, `MEDIA_DELIVERY=direct`, `DB_SSLMODE=verify-full`, HTTPS และ secure cookies รอบเดโม่ opt in `AWS_HTTP_DEMO=true` สำหรับ HTTP ALB origin ตามที่ตกลง โดยคง S3 private, RDS TLS, HttpOnly/SameSite cookies และ Origin checks ไฟล์ HLS ยังผ่าน API ตรวจสิทธิ์ก่อนส่งจาก S3
 - Migration 015 ใช้สำหรับ AWS เพิ่ม object keys, direct multipart uploads และ shared rate limits แยกจาก local 001–014 สคริปต์ migration มี schema baseline/checksum ledger และไม่รันจาก Auto Scaling boot
 - รูปภาพถูก normalize ก่อนอัปโหลดและมีงบ decoder/scratch ตามเครื่อง การรับไฟล์ใหญ่ไม่ใช่การรับประกันว่าทรัพยากรไม่จำกัด
 - ต้องมีโดเมน/subdomain ที่ควบคุม DNS ได้และ ACM certificate ก่อนสร้างชุด HTTPS ตรวจงบจริงก่อนสร้าง ALB/NAT/RDS เพราะแม้ StartApps=false ก็ยังมีค่าใช้จ่ายของ infrastructure
@@ -65,7 +65,7 @@ node scripts/backup-local-media.mjs
 
 เก็บไฟล์ source, migrations, Docker/Compose, lockfiles และตัวอย่าง env ไม่แนบ `.env`, `.env.local`, `.git`, `backups`, `node_modules`, `dist`, `test-results` หรือ `.archify` ส่วน `storage` ส่งเฉพาะสื่อที่ตั้งใจแนบและมีสิทธิ์เผยแพร่ ข้อมูลบัญชีและ avatar อยู่ในฐานข้อมูล ไม่ได้รวมใน source
 
-ยังไม่ได้ยืนยันการ deploy AWS หรือ production readiness การผ่าน build ไม่แทนการตรวจ runtime, capacity หรือ WCAG ทั้งหมด
+ยืนยันการเปิด HTTP demo บน AWS และตรวจเส้นทางพื้นฐานแล้ว ยังไม่รับรอง production readiness, capacity, WCAG หรือทุก flow ผู้ใช้จากการผ่าน build/health checks
 
 ## เจ้าของระบบและแอดมิน
 

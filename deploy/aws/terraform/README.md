@@ -6,7 +6,7 @@
 
 โค้ดแอปถูกดึงจาก GitHub commit `b35233dbdbc39cd6f8c68fec293750e49e74bfe7` และ build Docker บน EC2 ไม่ต้องใช้ ECR หรืออัปโหลด source release ไป S3 ไฟล์ User Data ถูกกรอกค่า resource IDs ให้อัตโนมัติ
 
-ผ่าน `terraform validate` และ mock plans 4 กรณีแล้ว มีการ apply บน AWS จริงจนเครือข่าย/RDS/ALB/migration host สำเร็จ แต่ค้าง S3 metadata ตามขั้นตอนกู้ต่อ ยังไม่ได้เปิดแอปหรือยืนยัน runtime ให้เลือกใช้ชุดนี้เพียงทางเดียว ไม่สร้าง infrastructure จากคู่มือ Console/CloudFormation อีกชุดซ้ำ หากมีของเดิมที่สร้างไว้แล้วต้องตรวจ/import ให้เหมาะสมก่อน ห้ามรันสร้างทับโดยเดา resource IDs
+สถานะวันที่ 29 ตุลาคม 2026: กู้ปัญหา S3 metadata แล้ว ย้าย DB/media สำเร็จ และเปิด Web ASG สองเครื่องกับ Worker หนึ่งเครื่องจริง ตรวจ ALB targets/container health, `/ready`, หน้าเว็บ/JS/CSS, catalog และภาพปกผ่านแล้ว ยังต้องตรวจ login/playback/upload/scale/failover ตาม [ผลตรวจ](VERIFICATION.md) ให้เลือกใช้ชุดนี้เพียงทางเดียว ไม่สร้าง infrastructure จากคู่มือ Console/CloudFormation อีกชุดซ้ำ หากมีของเดิมที่สร้างไว้แล้วต้องตรวจ/import ให้เหมาะสมก่อน ห้ามรันสร้างทับโดยเดา resource IDs
 
 ## 1. ใช้ HTTP ผ่านชื่อ ALB ที่ AWS ให้
 

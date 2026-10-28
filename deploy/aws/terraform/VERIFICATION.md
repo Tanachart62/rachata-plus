@@ -44,3 +44,15 @@
 - Build Docker image จาก tar context ที่กำหนดทุก source file เป็น0600 ผ่าน แล้วทดสอบ container user10001 อ่าน config/index.html และ nginx -t ผ่าน
 - ตรวจ release20ไฟล์ mode0644/no secrets และ mock bootstrap chmod ของ config/CA/secrets ผ่าน
 - Pin Git commit รุ่นแก้ไขใน Terraform และ local config; ยังต้องรัน helper ใหม่บน EC2 และ update LT/ASG ก่อนเปิดแอป
+
+## เปิด HTTP demo จริงวันที่ 29 ตุลาคม 2026
+
+- ผู้ใช้รัน recovery apply สำเร็จ 16 added/0 changed/0 destroyed โดยเก็บ buckets และ RDS เดิม
+- สร้าง backup ชุดล่าสุดและตรวจ restore/checksum แล้ว อัปโหลด DB dump/media tar และ metadata ไป artifact bucket แบบ private/AES256 พร้อมตรวจขนาด/SHA256 metadata
+- ผู้ใช้ restore/baseline/migration015 บน RDS สำเร็จ: users9, videos27, subscriptions10, active ready4; media dry-run และ apply ผ่าน videos4/objects204 และตรวจ S3 prefix media/ พบ204objects
+- ผู้ใช้รัน start-apps apply สำเร็จ 1 added/4 changed/0 destroyed ใช้ Git commit b35233dbdbc39cd6f8c68fec293750e49e74bfe7, Launch Template version2, เว็บสองเครื่องคนละ AZ และ Worker หนึ่งเครื่อง
+- ตรวจผ่าน AWS API ว่า ALB web targets ทั้งสอง healthy และ SSM read-only diagnostics พบ web/API containers ทั้งสองเครื่องกับ Worker container healthy; bootstrap services สำเร็จ
+- HTTP `/ready` ตอบ200 database connected, `/` ตอบ200, JS/CSS ที่ HTML อ้างอิงตอบ200, `/api/videos` แสดง4วิดีโอ และภาพปกตัวอย่างสองรูปอ่าน S3 ผ่าน API ได้เป็น JPEG
+- URL ณ เวลาตรวจ: http://rachata-alb-1193229672.us-east-1.elb.amazonaws.com (Learner Lab ชั่วคราว ไม่รับประกันเปิดต่อเนื่อง)
+- ยังไม่ได้ยืนยัน login/playback/upload ผ่าน browser หลัง deploy, การจำกัดแพ็กเกจ/จำนวนจอข้ามEC2, scale-out/instance replacement, RDS failover, capacity หรือ backup/restore ชุดหลัง cutover บน AWS ต้องทดสอบก่อนสรุปผ่านทุก flow
+- เครื่อง migration ยังเก็บไว้ระหว่างตรวจรับ ไม่ได้ลบไฟล์ local/storage/backups หรือ state

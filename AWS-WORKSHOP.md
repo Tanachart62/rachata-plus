@@ -397,7 +397,7 @@ User Data ของเครื่อง migration ใช้เฉพาะต�
 ```bash
 #!/bin/bash
 set -euo pipefail
-dnf install -y docker python3 curl unzip
+dnf install -y docker python3 unzip
 systemctl enable --now docker
 ```
 

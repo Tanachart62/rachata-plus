@@ -43,3 +43,9 @@
 - backup/restore RDS + S3 versions ใน AWS และค่าใช้จ่ายจริงก่อนเปิดให้อาจารย์ตรวจ
 
 ยังไม่ได้ตรวจ AWS end-to-end, load/capacity เต็มรูปแบบ หรือ accessibility audit ครบทุก flow
+# เพิ่มเติม: เส้นทาง GitHub + User Data
+
+- `user-data-github.sh` และ `prepare-github.sh` ผ่าน `bash -n`; User Data ขนาด 2,805 bytes ต่ำกว่า 16 KiB
+- Bootstrap ใช้ mock AWS/Docker และ temporary directories ตรวจ local images โหมด web, worker, prepare-only และ regression เส้นทาง ECR เดิม ผ่านทั้งสี่กรณี ไม่ได้เรียก AWS จริง
+- ตรวจรูปแบบ Python, code fences และ local links ใน `AWS-GITHUB-WORKSHOP.md` แล้ว
+- ยังไม่ได้รัน cloud-init/dnf/build บน Amazon Linux EC2 จริง หรือยืนยันเวลาเริ่มเครื่อง/สิทธิ์ instance profile ใน Lab ต้องตรวจตามคู่มือก่อนส่งงาน

@@ -26,6 +26,7 @@ parser.add_argument('--api-image', required=True)
 parser.add_argument('--web-image', required=True)
 parser.add_argument('--worker-image', required=True)
 parser.add_argument('--log-group', required=True)
+parser.add_argument('--image-source', choices=['ecr', 'local'], default='ecr', help='local: images built from a pinned Git commit on this EC2')
 parser.add_argument('--prepare-only', action='store_true', help='Migration host: fetch config/images without starting services')
 args = parser.parse_args()
 root = Path('/opt/rachata-plus')
@@ -35,8 +36,12 @@ if not re.fullmatch(r'https://[A-Za-z0-9.-]+', args.origin):
     raise SystemExit('An HTTPS origin without path is required')
 images = [args.api_image, args.web_image, args.worker_image]
 for image in images:
-    if not re.fullmatch(r'[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9_./-]+@sha256:[a-f0-9]{64}', image):
+    if args.image_source == 'ecr' and not re.fullmatch(r'[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9_./-]+@sha256:[a-f0-9]{64}', image):
         raise SystemExit('Use immutable private ECR image digests')
+    if args.image_source == 'local' and not re.fullmatch(r'rachata-plus-(api|web|worker):[a-f0-9]{40}', image):
+        raise SystemExit('Local images must use a full Git commit as their tag')
+if args.image_source == 'local' and len({image.split(':')[1] for image in images}) != 1:
+    raise SystemExit('All local images must use the same Git commit')
 secret = json.loads(command(['aws', 'secretsmanager', 'get-secret-value', '--secret-id', args.secret,
                             '--region', args.region, '--query', 'SecretString', '--output', 'text']))
 secrets = root / 'secrets'
@@ -65,16 +70,24 @@ os.chmod(ca, 0o644)
 scratch = Path('/srv/rachata-scratch')
 scratch.mkdir(mode=0o700, exist_ok=True)
 os.chown(scratch, 10001, 10001)
-registry = args.api_image.split('/')[0]
-if any(image.split('/')[0] != registry for image in images):
-    raise SystemExit('All images must use the same ECR registry and region')
-command(['aws', 's3api', 'head-bucket', '--bucket', args.bucket, '--region', args.region,
-         '--expected-bucket-owner', registry.split('.')[0]])
-password = command(['aws', 'ecr', 'get-login-password', '--region', args.region])
-command(['docker', 'login', '--username', 'AWS', '--password-stdin', registry], input=password)
 compose = ['docker', 'compose', '-p', 'rachata-plus-aws', '-f', 'compose.aws.yaml', '--profile', args.role]
-command(compose + ['pull'])
-command(['docker', 'logout', registry])
+if args.image_source == 'ecr':
+    registry = args.api_image.split('/')[0]
+    if any(image.split('/')[0] != registry for image in images):
+        raise SystemExit('All images must use the same ECR registry and region')
+    owner = registry.split('.')[0]
+else:
+    owner = command(['aws', 'sts', 'get-caller-identity', '--query', 'Account', '--output', 'text', '--region', args.region])
+command(['aws', 's3api', 'head-bucket', '--bucket', args.bucket, '--region', args.region,
+         '--expected-bucket-owner', owner])
+if args.image_source == 'ecr':
+    password = command(['aws', 'ecr', 'get-login-password', '--region', args.region])
+    command(['docker', 'login', '--username', 'AWS', '--password-stdin', registry], input=password)
+    command(compose + ['pull'])
+    command(['docker', 'logout', registry])
+else:
+    for image in images:
+        command(['docker', 'image', 'inspect', image, '--format', '{{.Id}}'])
 if args.prepare_only:
     print('Migration host prepared; no application containers started.')
     raise SystemExit(0)

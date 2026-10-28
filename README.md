@@ -1,6 +1,8 @@
 # Rachata Plus
 
-คู่มือขึ้น AWS แบบทำตาม AWS Console ทีละขั้น พร้อม User Data สำหรับ Launch Template: [AWS-WORKSHOP.md](AWS-WORKSHOP.md)
+คู่มือขึ้น AWS จาก GitHub แบบทำตาม AWS Console ทีละขั้น พร้อม User Data สำหรับ Launch Template: [AWS-GITHUB-WORKSHOP.md](AWS-GITHUB-WORKSHOP.md)
+
+ทางเลือกที่ใช้ S3 release/ECR: [AWS-WORKSHOP.md](AWS-WORKSHOP.md)
 
 เว็บวิดีโอสำหรับงานส่งอาจารย์ ใช้ React + TypeScript + Vite, Go + Gin + pgx, PostgreSQL และ FFmpeg/ffprobe แปลง HLS หลายความละเอียด
 

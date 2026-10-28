@@ -30,7 +30,8 @@ done
 [[ "$RELEASE_SHA256" =~ ^[a-f0-9]{64}$ ]]
 [[ "$(uname -m)" == x86_64 ]]
 
-dnf install -y docker python3 curl unzip
+dnf install -y docker python3 unzip
+command -v curl >/dev/null || { echo 'curl (or curl-minimal) is required.' >&2; exit 1; }
 systemctl enable --now docker
 command -v aws >/dev/null || { echo 'This AMI must contain AWS CLI v2.' >&2; exit 1; }
 

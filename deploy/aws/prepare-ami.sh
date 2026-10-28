@@ -1,7 +1,8 @@
 #!/bin/bash
 # Run on a new Amazon Linux 2023 x86_64 AMI builder. No app secrets belong in AMI.
 set -euo pipefail
-sudo dnf install -y docker python3 curl unzip
+sudo dnf install -y docker python3 unzip
+command -v curl >/dev/null || { echo 'curl (or curl-minimal) is required.' >&2; exit 1; }
 sudo systemctl enable --now docker
 command -v aws >/dev/null || { echo 'Install AWS CLI v2 from the official AWS instructions first.' >&2; exit 1; }
 version=v2.39.4
